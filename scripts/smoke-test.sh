@@ -68,6 +68,43 @@ for mid in $(jq -r '.miners[].id' miners.json); do
 done
 if [ "$res_ok" -eq 1 ]; then pass "all miners define a binary"; else fail "all miners define a binary"; fi
 
+# 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
+# Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
+# empty unless --auto-restart, so bash failed the redirect ('No such file or
+# directory') and the miner never executed.
+echo ""
+echo "6. Launch loop guard:"
+if grep -q 'if \[ -n "\$LOGFILE" \]' mine.sh; then
+    pass "launch loop guards empty LOGFILE"
+else
+    fail "launch loop guards empty LOGFILE"
+fi
+launch_out=$(bash -c 'set -euo pipefail
+BINARY_PATH=echo
+CMD_ARGS=(launched)
+LOGFILE=""
+AUTO_RESTART=false
+RESTART_COUNT=0
+MAX_RESTART=5
+while true; do
+    if [ -n "$LOGFILE" ]; then
+        "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1 || true
+    else
+        "$BINARY_PATH" "${CMD_ARGS[@]}"
+    fi
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    if $AUTO_RESTART && [ $RESTART_COUNT -lt $MAX_RESTART ]; then
+        :
+    else
+        break
+    fi
+done' 2>&1)
+if [[ "$launch_out" == *launched* ]] && [[ "$launch_out" != *"No such file"* ]]; then
+    pass "empty LOGFILE does not block miner launch"
+else
+    fail "empty LOGFILE does not block miner launch"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "Passed: $PASS"

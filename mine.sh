@@ -909,8 +909,13 @@ if $AUTO_RESTART; then
     LOGFILE="$LOGDIR/$MINER_ID-$(date +%Y%m%d-%H%M%S).log"
 fi
 while true; do
-    echo "=== $(date +%H:%M:%S) run $((RESTART_COUNT + 1))/$MAX_RESTART ($MINER_ID) ===" >> "$LOGFILE" 2>/dev/null || true
-    "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1 || true
+    if [ -n "$LOGFILE" ]; then
+        echo "=== $(date +%H:%M:%S) run $((RESTART_COUNT + 1))/$MAX_RESTART ($MINER_ID) ===" >> "$LOGFILE" 2>/dev/null || true
+        "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1 || true
+    else
+        # No log file: run in the foreground so output stays on the terminal.
+        "$BINARY_PATH" "${CMD_ARGS[@]}"
+    fi
 
     RESTART_COUNT=$((RESTART_COUNT + 1))
     if $AUTO_RESTART && [ $RESTART_COUNT -lt $MAX_RESTART ]; then
