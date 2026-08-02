@@ -14,8 +14,31 @@ curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.s
 ```
 
 Installs to `~/.local/share/deromine` and puts `deromine` on PATH via
-`~/.local/bin/deromine`. Re-run to update. If `~/.local/bin` is not on your
-PATH yet, add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile.
+`~/.local/bin/deromine`. On Termux (Android) it also links into `$PREFIX/bin`,
+the one directory always on PATH there, so it works in any Termux shell.
+Re-run to update. If `~/.local/bin` isn't on your PATH, the installer adds it
+automatically to your shell profile (bash/zsh/fish) — open a new terminal
+afterwards. Manual fallback: `export PATH="$HOME/.local/bin:$PATH"`.
+
+### One-liner (Windows)
+
+From PowerShell (5.1 or 7):
+
+```powershell
+irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex
+```
+
+Or from cmd:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex"
+```
+
+Installs to `%USERPROFILE%\.local\share\deromine`, copies the `deromine.cmd`
+launcher to `%USERPROFILE%\.local\bin`, and adds that folder to your user
+PATH so `deromine` works from any new cmd/PowerShell window. Re-run to
+update. Git is used when available; otherwise the source zip is downloaded,
+so git is not required.
 
 ### Manual (any OS)
 
@@ -144,7 +167,8 @@ Astronv 4.9%) ignore this flag.
 deromine/
 ├── deromine                      # Unified launcher (bash wrapper, auto-detect)
 ├── deromine.cmd                  # Unified launcher for Windows cmd
-├── install.sh                    # One-line installer (curl | bash)
+├── install.sh                    # One-line installer (curl | bash, Linux/macOS/Termux)
+├── install.ps1                   # One-line installer (Windows: PATH + launcher)
 ├── mine.ps1                      # Main PowerShell launcher
 ├── mine.sh                       # Bash/Termux launcher
 ├── miners.json                   # Catalog of available miners and release assets

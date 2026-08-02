@@ -124,6 +124,40 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 7. Windows installer (install.ps1) runs and places the launcher
+Write-Host ''
+Write-Host '7. Windows installer:' -ForegroundColor Yellow
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    $tmpBase = [System.IO.Path]::GetTempPath()
+    $tmpInst = Join-Path $tmpBase ('deromine-test-' + [guid]::NewGuid().ToString('N'))
+    $tmpBin = Join-Path $tmpBase ('deromine-bin-' + [guid]::NewGuid().ToString('N'))
+    try {
+        $installer = Join-Path $projectDir 'install.ps1'
+        Assert-True '  install.ps1 exists' (Test-Path $installer)
+        & pwsh -NoProfile -File $installer -RepoUrl $projectDir -InstallDir $tmpInst -BinDir $tmpBin -NoPathEdit | Out-Null
+        Assert-True '  install.ps1 ran cleanly' ($LASTEXITCODE -eq 0)
+        Assert-True '  repo cloned (mine.ps1 present)' (Test-Path (Join-Path $tmpInst 'mine.ps1'))
+        Assert-True '  launcher shim placed' (Test-Path (Join-Path $tmpBin 'deromine.cmd'))
+        $shimInvokesMine = $false
+        $shimPath = Join-Path $tmpBin 'deromine.cmd'
+        if (Test-Path $shimPath) {
+            $shimInvokesMine = (Get-Content $shimPath -Raw) -match 'mine\.ps1'
+        }
+        Assert-True '  shim invokes mine.ps1' $shimInvokesMine
+        # Re-run must succeed (idempotent update path)
+        & pwsh -NoProfile -File $installer -RepoUrl $projectDir -InstallDir $tmpInst -BinDir $tmpBin -NoPathEdit | Out-Null
+        Assert-True '  install.ps1 re-run (idempotent)' ($LASTEXITCODE -eq 0)
+    } catch {
+        Assert-True '  install.ps1 ran cleanly' $false
+        Write-Host "    Error: $_" -ForegroundColor DarkRed
+    } finally {
+        Remove-Item $tmpInst -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpBin -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    Write-Host '  [SKIP] git not found - skipping installer test' -ForegroundColor DarkYellow
+}
+
 # Summary
 Write-Host ''
 Write-Host '=== Results ===' -ForegroundColor Cyan
