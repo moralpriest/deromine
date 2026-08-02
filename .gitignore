@@ -1,0 +1,8 @@
+bin/
+config.json
+config.bak
+*.log
+*.tar.gz
+*.zip
+__pycache__/
+*.tmp

@@ -1,0 +1,5 @@
+{
+  "wallet_address": "",
+  "daemon_url": "http://localhost:10100",
+  "thread_count": 4
+}

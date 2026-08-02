@@ -1,0 +1,205 @@
+{
+  "daemons": [
+    {
+      "name": "rabidmining",
+      "url": "http://dero.rabidmining.com:10100"
+    },
+    {
+      "name": "community-pools",
+      "url": "http://community-pools.mysrv.cloud:10300"
+    },
+    {
+      "name": "localhost",
+      "url": "http://localhost:10100"
+    }
+  ],
+  "miners": [
+    {
+      "id": "c",
+      "name": "Dirtybird C++",
+      "binary": "dirtybird-c-miner",
+      "binary_archive": "dirtybird-miner-cpu",
+      "repo": "Dirtybird99/Dirtybird-C-Miner",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Open source",
+      "type": "cpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "dirtybird-miner-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "dirtybird-miner-v*_aarch64_android.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "dirtybird-miner-win64-*.zip" }
+      ]
+    },
+    {
+      "id": "rust",
+      "name": "Dirtybird Rust",
+      "binary": "dirtybird-dero-miner",
+      "binary_archive": "dero-miner",
+      "repo": "Dirtybird99/Dirtybird-Rust-Miner",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Open source",
+      "type": "cpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Rust-Miner-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Rust-Miner-arm64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Rust-Miner-android-arm64-*.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-Rust-Miner-win64-*.zip" }
+      ]
+    },
+    {
+      "id": "go",
+      "name": "Dirtybird Go",
+      "binary": "dirtybird-go-miner",
+      "binary_archive": "go-miner",
+      "repo": "Dirtybird99/Dirtybird-Go-Miner",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Open source",
+      "type": "cpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Go-Miner-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Go-Miner-arm64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Go-Miner-android-arm64-*.tar.gz" },
+        { "os": "macos",   "arch": "aarch64","pattern": "Dirtybird-Go-Miner-macos-arm64-*.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-Go-Miner-win64-*.zip" }
+      ]
+    },
+    {
+      "id": "zig",
+      "name": "Dirtybird Zig",
+      "binary": "dirtybird-zig-miner",
+      "binary_archive": "zig-miner",
+      "repo": "Dirtybird99/Dirtybird-Zig-Miner",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Open source",
+      "type": "cpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Zig-Miner-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Zig-Miner-arm64-*.tar.gz" },
+        { "os": "macos",   "arch": "aarch64","pattern": "Dirtybird-Zig-Miner-macos-arm64-*.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-Zig-Miner-win64-*.zip" }
+      ]
+    },
+    {
+      "id": "cuda",
+      "name": "Dirtybird CUDA",
+      "binary": "dirtybird-openastronv_v3",
+      "binary_archive": "openastronv_v3",
+      "repo": "Dirtybird99/Dirtybird-CUDA-Miner",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Open source",
+      "requires": ["nvidia-gpu"],
+      "type": "gpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-CUDA-Miner-linux-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-CUDA-Miner-linux-arm64-*.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-CUDA-Miner-windows-wsl-*.zip" }
+      ]
+    },
+    {
+      "id": "go-gpu",
+      "name": "Dirtybird Go GPU",
+      "binary": "dirtybird-go-gpu-miner",
+      "binary_archive": "go-gpu-miner",
+      "repo": "Dirtybird99/Dirtybird-Go-GPU-Miner",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Open source",
+      "requires": ["vulkan-gpu"],
+      "type": "gpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Go-GPU-Miner-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Go-GPU-Miner-arm64-*.tar.gz" },
+        { "os": "macos",   "arch": "aarch64","pattern": "Dirtybird-Go-GPU-Miner-macos-arm64-*.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-Go-GPU-Miner-win64-*.zip" }
+      ]
+    },
+    {
+      "id": "derohe",
+      "name": "DERO HE Default Miner",
+      "binary": "dero-miner-linux-amd64",
+      "binary_archive": "dero-miner-linux-amd64",
+      "repo": "deroproject/derohe",
+      "fee": "0%",
+      "risk": "low",
+      "risk_note": "Official",
+      "type": "cpu",
+      "flags": {
+        "daemon": "--daemon-rpc-address",
+        "wallet": "--wallet-address",
+        "threads": "--mining-threads"
+      },
+      "assets": [
+        { "os": "linux",   "arch": "amd64",  "pattern": "dero_linux_amd64.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "dero_linux_arm64.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "dero_windows_amd64.zip" }
+      ]
+    },
+    {
+      "id": "deroluna",
+      "name": "DeroLuna",
+      "binary": "deroluna-miner",
+      "repo": "DeroLuna/dero-miner",
+      "host": "gitlab-branch",
+      "branch": "main",
+      "release_path": "releases",
+      "fee": "10%",
+      "risk": "high",
+      "risk_note": "Closed source",
+      "type": "cpu",
+      "assets": [
+        { "os": "linux",   "arch": "amd64",   "pattern": "deroluna-v*_linux_hiveos_mmpos.tar.gz" },
+        { "os": "linux",   "arch": "aarch64", "pattern": "deroluna-v*_aarch64_android.tar.gz" },
+        { "os": "windows", "arch": "amd64",   "pattern": "deroluna-v*_windows.zip" }
+      ]
+    },
+    {
+      "id": "tnn",
+      "name": "TNN",
+      "binary": "tnn-miner",
+      "repo": "Tritonn204/tnn-miner",
+      "host": "gitlab-release",
+      "fee": "2.5%",
+      "risk": "medium",
+      "risk_note": "Closed DLLs",
+      "type": "both",
+      "flags": {
+        "coin": "--DERO",
+        "daemon": "--daemon-address",
+        "wallet": "--wallet",
+        "threads": "--threads",
+        "port": "--port",
+        "dev_fee": "--dev-fee"
+      },
+      "assets": [
+        { "os": "linux",   "arch": "amd64",   "pattern": "Tnn-miner-amd64-v*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64", "pattern": "Tnn-miner-arm64-v*.tar.gz" },
+        { "os": "macos",   "arch": "aarch64", "pattern": "Tnn-miner-macos-arm64-v*.tar.gz" },
+        { "os": "windows", "arch": "amd64",   "pattern": "Tnn-miner-win64-v*.zip" }
+      ]
+    },
+    {
+      "id": "astronv",
+      "name": "Astronv",
+      "binary": "astronv",
+      "binary_archive": "astronv",
+      "repo": "dero-am/astronv",
+      "fee": "4.9%",
+      "risk": "high",
+      "risk_note": "Closed source",
+      "benchmark": false,
+      "requires": ["nvidia-gpu"],
+      "type": "gpu",
+      "flags": {
+        "daemon": "-r",
+        "wallet": "-w"
+      },
+      "assets": [
+        { "os": "linux",   "arch": "amd64",   "pattern": "astronv-V*_Linux_amd64.tar.gz" }
+      ]
+    }
+  ]
+}

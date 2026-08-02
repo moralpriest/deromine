@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# deromine — unified launcher for dero miners
+#
+# Prefers PowerShell (full interactive UI) and falls back to bash for
+# Termux / minimal environments. Resolves its own real path so it works
+# when symlinked onto PATH (e.g. ~/.local/bin/mine).
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    case "$SOURCE" in
+        /*) ;;
+        *) SOURCE="$DIR/$SOURCE" ;;
+    esac
+done
+DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+if command -v pwsh >/dev/null 2>&1; then
+    exec pwsh -NoProfile -File "$DIR/mine.ps1" "$@"
+fi
+if command -v powershell >/dev/null 2>&1; then
+    exec powershell -NoProfile -ExecutionPolicy Bypass -File "$DIR/mine.ps1" "$@"
+fi
+exec bash "$DIR/mine.sh" "$@"

@@ -1,0 +1,907 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$PROJECT_DIR/lib"
+BIN_DIR="$PROJECT_DIR/bin"
+CONFIG_FILE="$PROJECT_DIR/config.json"
+MINERS_FILE="$PROJECT_DIR/miners.json"
+
+# ── Parse arguments ──
+DAEMON_URL="http://dero.rabidmining.com:10100"
+WALLET_ADDR=""
+MINER_ID=""
+THREAD_COUNT=0
+DAEMON_FLAG=0
+DRY_RUN=false
+AUTO_RESTART=false
+MAX_RESTART=5
+RESTART_DELAY=10
+BENCH_MODE=false
+BENCH_TIME=30
+DEV_FEE_OVERRIDE=""
+
+show_help() {
+    cat <<'EOF'
+Usage: deromine [options]
+
+  --version              Show version and exit
+  --miner=<id>           Miner id, or "list" to show the catalog table
+  --wallet=<addr>        DERO wallet address
+  --daemon=<url>         Node/pool host:port (scheme optional)
+  --threads=<n>          CPU threads
+  --dev-fee=<pct>        Dev fee % for miners that support it (e.g. TNN)
+  --auto-restart         Restart miner on crash
+  --max-restart=<n>      Max restarts (default 5)
+  --delay=<sec>          Restart delay in seconds (default 10)
+  --dry-run              Resolve release and print command, do not launch
+  --benchmark            Benchmark all supported miners
+  --bench-time=<sec>     Benchmark seconds per miner (default 30)
+  -h | --help | /?       Show this help
+
+Examples:
+  deromine
+  deromine --miner=list
+  deromine --miner=tnn --dev-fee=1
+  deromine --miner=c --dry-run
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --daemon=*) DAEMON_URL="${1#*=}"; DAEMON_FLAG=1; shift ;;
+        --wallet=*) WALLET_ADDR="${1#*=}"; shift ;;
+        --miner=*)  MINER_ID="${1#*=}"; shift ;;
+        --threads=*) THREAD_COUNT="${1#*=}"; shift ;;
+        --dry-run)  DRY_RUN=true; shift ;;
+        --list)     MINER_ID="list"; shift ;;
+        --auto-restart) AUTO_RESTART=true; shift ;;
+        --max-restart=*) MAX_RESTART="${1#*=}"; shift ;;
+        --delay=*) RESTART_DELAY="${1#*=}"; shift ;;
+        --benchmark) BENCH_MODE=true; shift ;;
+        --bench-time=*) BENCH_TIME="${1#*=}"; shift ;;
+        --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
+        -h|--help|help|/\?) show_help; exit 0 ;;
+        --version) echo "deromine 1.0.0"; exit 0 ;;
+        *) echo "Unknown: $1"; exit 1 ;;
+    esac
+done
+
+# ── Dev fee override: --dev-fee flag wins over config.json ──
+if [ -z "$DEV_FEE_OVERRIDE" ] && [ -f "$CONFIG_FILE" ]; then
+    DEV_FEE_OVERRIDE=$(jq -r '.dev_fee // ""' "$CONFIG_FILE")
+fi
+
+# ── Detect platform ──
+OS="linux"
+ARCH="amd64"
+case "$(uname -s)" in
+    Linux*)  OS="linux" ;;
+    Darwin*) OS="macos" ;;
+    MINGW*|MSYS*|CYGWIN*) OS="windows" ;;
+esac
+case "$(uname -m)" in
+    aarch64|arm64) ARCH="aarch64" ;;
+    armv7l|armv8l) ARCH="arm" ;;
+esac
+
+# ── Terminal capabilities ──
+has_unicode() {
+    local charmap
+    charmap="$(locale charmap 2>/dev/null || echo '')"
+    [ "$charmap" = "UTF-8" ] && return 0
+    [[ "${LC_ALL:-}${LANG:-}" =~ [Uu][Tt][Ff]-?8 ]] && return 0
+    return 1
+}
+
+C_BANNER=''; C_BORDER=''; C_NUM=''; C_NAME=''; C_BIN=''
+C_STATUS=''; C_ERR=''; C_OK=''; C_HDR=''; C_DIM=''; C_RESET=''
+C_RISK_LO=''; C_RISK_MED=''; C_RISK_HI=''
+C_FEE_LO=''; C_FEE_MED=''; C_FEE_HI=''
+if [ -t 1 ]; then
+    C_BANNER=$'\033[35m'; C_BORDER=$'\033[36m'; C_NUM=$'\033[33m'
+    C_NAME=$'\033[37m'; C_BIN=$'\033[90m'; C_STATUS=$'\033[32m'
+    C_ERR=$'\033[31m'; C_OK=$'\033[32m'; C_HDR=$'\033[36m'
+    C_DIM=$'\033[90m'; C_RESET=$'\033[0m'
+    C_RISK_LO=$'\033[32m'; C_RISK_MED=$'\033[33m'; C_RISK_HI=$'\033[31m'
+    C_FEE_LO=$'\033[32m'; C_FEE_MED=$'\033[33m'; C_FEE_HI=$'\033[31m'
+fi
+
+if has_unicode; then
+    TL='╔'; TR='╗'; BL='╚'; BR='╝'; H='═'; V='║'
+    T_TL='┌'; T_TR='┐'; T_BL='└'; T_BR='┘'; T_LT='├'; T_RT='┤'
+    T_TT='┬'; T_BT='┴'; T_X='┼'; T_H='─'; T_V='│'
+    BULLET='●'; CROSS='✗'; CHECK='✓'; ARROW='▶'
+else
+    TL='+'; TR='+'; BL='+'; BR='+'; H='='; V='|'
+    T_TL='+'; T_TR='+'; T_BL='+'; T_BR='+'; T_LT='+'; T_RT='+'
+    T_TT='+'; T_BT='+'; T_X='+'; T_H='-'; T_V='|'
+    BULLET='*'; CROSS='X'; CHECK='OK'; ARROW='>'
+fi
+
+# tr() only maps single bytes, so it mangles multi-byte UTF-8 box chars.
+# sed handles full characters on GNU and BSD.
+rep() { printf '%*s' "$2" '' | sed "s/ /$1/g"; }
+
+# macOS/BSD lacks GNU coreutils 'timeout'. Use it when present, otherwise run
+# the command directly (only used for benchmarking).
+tmo() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout -k 5 "$secs" "$@"
+    else
+        "$@"
+    fi
+}
+
+# ── jq check ──
+if ! command -v jq &>/dev/null; then
+    echo "${C_ERR}[x] jq required. Install: apt install jq (or brew install jq)${C_RESET}"
+    exit 1
+fi
+
+# ── Read catalog ──
+read_catalog() {
+    jq -c '.miners[]' "$MINERS_FILE" 2>/dev/null || { echo "${C_ERR}[x] Failed to parse $MINERS_FILE${C_RESET}"; exit 1; }
+}
+
+get_miner_by_id() {
+    local id="$1"
+    local m mid
+    while IFS= read -r m; do
+        mid=$(echo "$m" | jq -r '.id')
+        if [ "$mid" = "$id" ]; then echo "$m"; return 0; fi
+    done < <(read_catalog)
+    return 1
+}
+
+get_asset_pattern() {
+    local miner_json="$1"
+    echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '.assets[] | select(.os == $os and .arch == $arch) | .pattern'
+}
+
+# ── Hardware detection ──
+has_nvidia_gpu() {
+    command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1
+}
+
+has_vulkan_gpu() {
+    if command -v vulkaninfo >/dev/null 2>&1; then
+        vulkaninfo --summary >/dev/null 2>&1 && return 0
+    fi
+    if [ "$OS" = "linux" ] && [ -d /dev/dri ]; then
+        ls /dev/dri/card* >/dev/null 2>&1 && return 0
+    fi
+    if [ "$OS" = "macos" ] || [ "$OS" = "windows" ]; then return 0; fi
+    return 1
+}
+
+tcp_open() {
+    local port="$1"
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 0.7 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null && return 0
+    else
+        (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Only TLS GETWORK mining ports can serve dirtybird miners.
+is_mining_url() {
+    local url="$1" port
+    port="${url##*:}"
+    port="${port%%/*}"
+    case "$port" in
+        10100|40400) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+detect_local_daemon() {
+    local port
+    # Miners can ONLY connect via TLS to the GETWORK mining port
+    # (mainnet 10100, testnet 40400). Plain-HTTP RPC ports (10102/40402/
+    # 19999) are never valid miner endpoints, so they are not probed.
+    for port in 10100 40400; do
+        tcp_open "$port" || continue
+        # GETWORK/mining listener accepts TLS (dirtybird miners always TLS)
+        if curl -sk --connect-timeout 0.5 --max-time 1.2 -o /dev/null "https://127.0.0.1:$port/" 2>/dev/null; then
+            echo "http://127.0.0.1:$port"
+            return 0
+        fi
+    done
+    return 1
+}
+
+miner_hardware_ok() {
+    local miner_json="$1"
+    local req
+    local needs
+    needs=($(echo "$miner_json" | jq -r '.requires[]? // empty'))
+    for req in "${needs[@]:-}"; do
+        case "$req" in
+            nvidia-gpu) has_nvidia_gpu || return 1 ;;
+            vulkan-gpu) has_vulkan_gpu || return 1 ;;
+        esac
+    done
+    return 0
+}
+
+# ── Table rendering ──
+draw_miner_table() {
+    local -a all=("$@")
+    local m name bin fee typ rnote rlv nw=4 mw=10 bw=12 tw=4 sw=8 rw=12 fw=5 i num line
+    local -a names=() bins=() types=() fees=() rnotes=() rlevels=()
+    for m in "${all[@]:-}"; do
+        name=$(echo "$m" | jq -r '.name // "?"')
+        bin=$(echo "$m" | jq -r '.binary // "?"')
+        fee=$(echo "$m" | jq -r '.fee // "0%"')
+        dflg=$(echo "$m" | jq -r '.flags.dev_fee // empty')
+        if [ -n "$dflg" ] && [ -n "$DEV_FEE_OVERRIDE" ]; then
+            fee="${DEV_FEE_OVERRIDE}%"
+        fi
+        typ=$(echo "$m" | jq -r '.type // "cpu"')
+        rnote=$(echo "$m" | jq -r '.risk_note // "Unknown"')
+        rlv=$(echo "$m" | jq -r '.risk // "low"')
+        names+=("$name"); bins+=("$bin"); types+=("$typ"); fees+=("$fee"); rnotes+=("$rnote"); rlevels+=("$rlv")
+        [ "${#name}" -gt "$mw" ] && mw="${#name}"
+        [ "${#bin}" -gt "$bw" ] && bw="${#bin}"
+        [ "${#typ}" -gt "$tw" ] && tw="${#typ}"
+        [ "${#fee}" -gt "$fw" ] && fw="${#fee}"
+        [ "${#rnote}" -gt "$rw" ] && rw="${#rnote}"
+    done
+    [ "$mw" -lt 10 ] && mw=10
+    [ "$bw" -lt 12 ] && bw=12
+    [ "$tw" -lt 4 ] && tw=4
+    [ "$rw" -lt 12 ] && rw=12
+    [ "$fw" -lt 5 ] && fw=5
+    nw="${#all[@]}"
+    [ "$nw" -lt 3 ] && nw=3
+
+    top="${T_TL}$(rep "$T_H" $((nw+2)))$T_TT$(rep "$T_H" $((mw+2)))$T_TT$(rep "$T_H" $((bw+2)))$T_TT$(rep "$T_H" $((tw+2)))$T_TT$(rep "$T_H" $((sw+2)))$T_TT$(rep "$T_H" $((rw+2)))$T_TT$(rep "$T_H" $((fw+2)))$T_TR"
+    hdr="${T_V} $(printf '%-*s' "$nw" '#')${T_V} $(printf '%-*s' "$mw" 'Miner')${T_V} $(printf '%-*s' "$bw" 'Binary')${T_V} $(printf '%-*s' "$tw" 'Type')${T_V} $(printf '%-*s' "$sw" 'Status')${T_V} $(printf '%-*s' "$rw" 'Risk')${T_V} $(printf '%-*s' "$fw" 'Fee')${T_V}"
+    mid="${T_LT}$(rep "$T_H" $((nw+2)))$T_X$(rep "$T_H" $((mw+2)))$T_X$(rep "$T_H" $((bw+2)))$T_X$(rep "$T_H" $((tw+2)))$T_X$(rep "$T_H" $((sw+2)))$T_X$(rep "$T_H" $((rw+2)))$T_X$(rep "$T_H" $((fw+2)))$T_RT"
+    bot="${T_BL}$(rep "$T_H" $((nw+2)))$T_BT$(rep "$T_H" $((mw+2)))$T_BT$(rep "$T_H" $((bw+2)))$T_BT$(rep "$T_H" $((tw+2)))$T_BT$(rep "$T_H" $((sw+2)))$T_BT$(rep "$T_H" $((rw+2)))$T_BT$(rep "$T_H" $((fw+2)))$T_BR"
+
+    echo "${C_BORDER}$top${C_RESET}"
+    echo "${C_BORDER}$hdr${C_RESET}"
+    echo "${C_BORDER}$mid${C_RESET}"
+    i=0
+    for m in "${all[@]:-}"; do
+        i=$((i+1))
+        num=$(printf '%*s' "$nw" "$i")
+        name=$(printf '%-*s' "$mw" "${names[$((i-1))]}")
+        bin=$(printf '%-*s' "$bw" "${bins[$((i-1))]}")
+        typ=$(printf '%-*s' "$tw" "${types[$((i-1))]}")
+        fee=$(printf '%-*s' "$fw" "${fees[$((i-1))]}")
+        fnum="${fees[$((i-1))]%%%}"
+        fcol="$C_FEE_LO"
+        ftier=$(awk -v f="$fnum" 'BEGIN { if (f+0 <= 0) print "lo"; else if (f+0 <= 2.5) print "med"; else print "hi" }')
+        case "$ftier" in
+            med) fcol="$C_FEE_MED" ;;
+            hi)  fcol="$C_FEE_HI" ;;
+        esac
+        rnote=$(printf '%-*s' "$rw" "${rnotes[$((i-1))]}")
+        rlv="${rlevels[$((i-1))]}"
+        case "$rlv" in
+            high)   rcol="$C_RISK_HI" ;;
+            medium) rcol="$C_RISK_MED" ;;
+            *)      rcol="$C_RISK_LO" ;;
+        esac
+        status=$(printf '%-*s' "$sw" "$BULLET AVAIL")
+        mid=$(echo "$m" | jq -r '.id // ""')
+        if [ -n "$mid" ] && [ -x "$BIN_DIR/$mid/$(echo "$m" | jq -r '.binary // ""')" ]; then
+            status=$(printf '%-*s' "$sw" "$CHECK READY")
+        fi
+        line="${T_V} ${C_NUM}${num}${C_RESET} ${T_V} ${C_NAME}${name}${C_RESET} ${T_V} ${C_BIN}${bin}${C_RESET} ${T_V} ${C_DIM}${typ}${C_RESET} ${T_V} ${C_STATUS}${status}${C_RESET} ${T_V} ${rcol}${rnote}${C_RESET} ${T_V} ${fcol}${fee}${C_RESET} ${T_V}"
+        echo -e "${C_BORDER}$line${C_RESET}"
+    done
+    echo "${C_BORDER}$bot${C_RESET}"
+}
+
+draw_daemon_table() {
+    local -a names=("$@")
+    local -a urls=()
+    local d name url nw=4 mw=10 uw=20 i num line
+    for d in "${names[@]:-}"; do
+        name=$(echo "$d" | jq -r '.name // "?"')
+        url=$(echo "$d" | jq -r '.url // "?"')
+        urls+=("$url")
+        [ "${#name}" -gt "$mw" ] && mw="${#name}"
+        [ "${#url}" -gt "$uw" ] && uw="${#url}"
+    done
+    [ "$mw" -lt 10 ] && mw=10
+    [ "$uw" -lt 20 ] && uw=20
+    nw="${#names[@]}"
+    [ "$nw" -lt 3 ] && nw=3
+
+    top="${T_TL}$(rep "$T_H" $((nw+2)))$T_TT$(rep "$T_H" $((mw+2)))$T_TT$(rep "$T_H" $((uw+2)))$T_TR"
+    hdr="${T_V} $(printf '%-*s' "$nw" '#')${T_V} $(printf '%-*s' "$mw" 'Name')${T_V} $(printf '%-*s' "$uw" 'URL')${T_V}"
+    mid="${T_LT}$(rep "$T_H" $((nw+2)))$T_X$(rep "$T_H" $((mw+2)))$T_X$(rep "$T_H" $((uw+2)))$T_RT"
+    bot="${T_BL}$(rep "$T_H" $((nw+2)))$T_BT$(rep "$T_H" $((mw+2)))$T_BT$(rep "$T_H" $((uw+2)))$T_BR"
+
+    echo "${C_BORDER}$top${C_RESET}"
+    echo "${C_BORDER}$hdr${C_RESET}"
+    echo "${C_BORDER}$mid${C_RESET}"
+    i=0
+    for d in "${names[@]:-}"; do
+        i=$((i+1))
+        num=$(printf '%*s' "$nw" "$i")
+        name=$(printf '%-*s' "$mw" "$(echo "$d" | jq -r '.name // "?"')")
+        url=$(printf '%-*s' "$uw" "${urls[$((i-1))]}")
+        line="${T_V} ${C_NUM}${num}${C_RESET} ${T_V} ${C_NAME}${name}${C_RESET} ${T_V} ${C_BIN}${url}${C_RESET} ${T_V}"
+        echo -e "${C_BORDER}$line${C_RESET}"
+    done
+    echo "${C_BORDER}$bot${C_RESET}"
+}
+
+draw_banner() {
+    local width="${COLUMNS:-80}"
+    local title="deromine"
+    local inner=$((width > 12 ? width - 4 : 12))
+    local top bot
+    top="${TL}$(rep "$H" "$inner")${TR}"
+    bot="${BL}$(rep "$H" "$inner")${BR}"
+    echo "${C_BANNER}$top${C_RESET}"
+    echo "${C_BANNER}${V}  ${C_NAME}${title}${C_RESET}${C_BANNER}$(rep ' ' "$((inner - 2 - ${#title}))")${V}${C_RESET}"
+    echo "${C_BANNER}$bot${C_RESET}"
+    echo ""
+}
+
+gitlab_id() {
+    printf '%s' "$REPO" | jq -sRr @uri
+}
+
+resolve_github() {
+    API_URL="https://api.github.com/repos/$REPO/releases/latest"
+    API_RESP=$(curl -sf "$API_URL") || { echo "${C_ERR}[x] GitHub API failed${C_RESET}"; exit 1; }
+    TAG=$(echo "$API_RESP" | jq -r '.tag_name')
+    ARCHIVE_NAME=$(echo "$API_RESP" | jq -r --arg p "$ASSET_PATTERN" '.assets[].name | select(. | test($p | gsub("\\*";".*")))')
+    DOWNLOAD_URL=$(echo "$API_RESP" | jq -r --arg n "$ARCHIVE_NAME" '.assets[] | select(.name == $n) | .browser_download_url')
+}
+
+resolve_gitlab_release() {
+    local id api resp name path
+    id=$(gitlab_id)
+    api="https://gitlab.com/api/v4/projects/$id/releases/permalink/latest"
+    resp=$(curl -sfL "$api") || { echo "${C_ERR}[x] GitLab API failed${C_RESET}"; exit 1; }
+    TAG=$(echo "$resp" | jq -r '.tag_name')
+    ARCHIVE_NAME=""
+    DOWNLOAD_URL=""
+    while IFS= read -r name; do
+        if [[ "$name" == $ASSET_PATTERN ]]; then
+            ARCHIVE_NAME="$name"
+            DOWNLOAD_URL=$(echo "$resp" | jq -r --arg n "$name" '.assets.links[] | select(.name == $n) | .direct_asset_url')
+            break
+        fi
+    done < <(echo "$resp" | jq -r '.assets.links[].name')
+}
+
+resolve_gitlab_branch() {
+    local id api resp dirs version name path
+    id=$(gitlab_id)
+    api="https://gitlab.com/api/v4/projects/$id/repository/tree"
+    resp=$(curl -sfL "$api?path=$RELEASE_PATH&ref=$BRANCH&per_page=100") || { echo "${C_ERR}[x] GitLab API failed (branch tree)${C_RESET}"; exit 1; }
+    dirs=$(echo "$resp" | jq -r '.[] | select(.type == "tree" and (.name | test("^v?[0-9.]+$"))) | .name')
+    [ -z "$dirs" ] && { echo "${C_ERR}[x] No version dirs under $RELEASE_PATH in $REPO${C_RESET}"; exit 1; }
+    version=$(echo "$dirs" | awk '{ v=$0; sub(/^v/,"",v); n=split(v,a,"."); for(i=1;i<=3;i++){ a[i]=(a[i]+0)*1 }; score=a[1]*1000000+a[2]*1000+a[3]; print score, $0 }' | sort -n | tail -1 | cut -d' ' -f2-)
+    TAG="$version"
+    resp=$(curl -sfL "$api?path=$RELEASE_PATH/$version&ref=$BRANCH&per_page=100") || { echo "${C_ERR}[x] GitLab API failed (file list)${C_RESET}"; exit 1; }
+    ARCHIVE_NAME=""
+    DOWNLOAD_URL=""
+    while IFS= read -r name; do
+        if [[ "$name" == $ASSET_PATTERN ]]; then
+            ARCHIVE_NAME="$name"
+            path=$(echo "$resp" | jq -r --arg n "$name" '.[] | select(.type == "blob" and .name == $n) | .path')
+            DOWNLOAD_URL="https://gitlab.com/$REPO/-/raw/$BRANCH/$path"
+            break
+        fi
+    done < <(echo "$resp" | jq -r '.[] | select(.type == "blob") | .name')
+}
+
+# ── Collect catalog into arrays ──
+MINER_JSONS=()
+while IFS= read -r m; do
+    [ -n "$m" ] && MINER_JSONS+=("$m")
+done < <(read_catalog)
+[ "${#MINER_JSONS[@]}" -eq 0 ] && { echo "${C_ERR}[x] No miners in catalog${C_RESET}"; exit 1; }
+
+SUPPORTED=()
+for m in "${MINER_JSONS[@]}"; do
+    pattern=$(get_asset_pattern "$m")
+    [ -z "$pattern" ] && continue
+    if ! miner_hardware_ok "$m"; then continue; fi
+    SUPPORTED+=("$m")
+done
+
+# ── Benchmark mode ──
+parse_hashrate() {
+    local out="$1" val num unit mult
+    val=$(grep -aoE '[0-9]+(\.[0-9]+)? ?[kKmM]? ?H/s' "$out" | tail -1)
+    [ -z "$val" ] && { echo ""; return; }
+    num=$(echo "$val" | grep -aoE '[0-9]+(\.[0-9]+)?')
+    unit=$(echo "$val" | grep -aoE '[kKmM][ ]?H/s' | tail -1 | cut -c1)
+    mult=1
+    case "$unit" in
+        k|K) mult=1000 ;;
+        m|M) mult=1000000 ;;
+    esac
+    awk -v n="$num" -v m="$mult" 'BEGIN{ printf "%.2f", n*m }'
+}
+
+parse_tnn() {
+    local out="$1" val
+    val=$(grep -aoE 'threads @ [0-9]+(\.[0-9]+)?' "$out" | tail -1 | sed 's/threads @ //')
+    [ -z "$val" ] && { echo ""; return; }
+    awk -v n="$val" 'BEGIN{ printf "%.2f", n*1000 }'
+}
+
+parse_derohe() {
+    local out="$1" val num unit mult
+    val=$(grep -aoE 'MINING @ [0-9]+(\.[0-9]+)?[ ]?[kKmM]?[ ]?H/s' "$out" | tail -1)
+    [ -z "$val" ] && { echo ""; return; }
+    num=$(echo "$val" | grep -aoE '[0-9]+(\.[0-9]+)?')
+    unit=$(echo "$val" | grep -aoE '[kKmM][ ]?H/s' | tail -1 | cut -c1)
+    mult=1
+    case "$unit" in
+        k|K) mult=1000 ;;
+        m|M) mult=1000000 ;;
+    esac
+    awk -v n="$num" -v m="$mult" 'BEGIN{ printf "%.2f", n*m }'
+}
+
+if $BENCH_MODE; then
+    [ "$BENCH_TIME" -lt 1 ] && BENCH_TIME=30
+    if [ "$THREAD_COUNT" -eq 0 ] && [ -f "$CONFIG_FILE" ]; then
+        THREAD_COUNT=$(jq -r '.thread_count // 0' "$CONFIG_FILE")
+    fi
+    [ "$THREAD_COUNT" -eq 0 ] && THREAD_COUNT=$(( ($(nproc 2>/dev/null || echo 4)) - 1 ))
+    [ "$THREAD_COUNT" -lt 1 ] && THREAD_COUNT=1
+    if [ -f "$CONFIG_FILE" ]; then
+        [ -z "$DAEMON_URL" ] && DAEMON_URL=$(jq -r '.daemon_url // "http://127.0.0.1:10100"' "$CONFIG_FILE")
+        [ -z "$WALLET_ADDR" ] && WALLET_ADDR=$(jq -r '.wallet_address // ""' "$CONFIG_FILE")
+    fi
+    [ -z "$DAEMON_URL" ] && DAEMON_URL="http://127.0.0.1:10100"
+    [ -z "$WALLET_ADDR" ] && WALLET_ADDR="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
+    LIVE_DAEMON="${DAEMON_URL#http://}"
+    LIVE_DAEMON="${LIVE_DAEMON#https://}"
+
+    if [ "${#SUPPORTED[@]}" -eq 0 ]; then
+        echo "${C_ERR}[x] No miners available to benchmark on this host${C_RESET}"
+        exit 1
+    fi
+
+    draw_banner
+    echo "${C_HDR}Benchmarking ${#SUPPORTED[@]} miners (~${BENCH_TIME}s each, ${THREAD_COUNT} threads)...${C_RESET}"
+
+    bench_miner() {
+        local m="$1" id name fee repo host branch rpath pattern bname abin out raw
+        id=$(echo "$m" | jq -r '.id')
+        name=$(echo "$m" | jq -r '.name // .id')
+        fee=$(echo "$m" | jq -r '.fee // "0%"')
+        if [ "$(echo "$m" | jq -r 'if (.benchmark == false) then "false" else "true" end')" = "false" ]; then
+            echo "  ${C_DIM}[skip] $name: benchmark disabled in catalog${C_RESET}"
+            return
+        fi
+        repo=$(echo "$m" | jq -r '.repo')
+        host=$(echo "$m" | jq -r '.host // "github"')
+        branch=$(echo "$m" | jq -r '.branch // "main"')
+        rpath=$(echo "$m" | jq -r '.release_path // "releases"')
+        bname=$(echo "$m" | jq -r '.binary')
+        abin=$(echo "$m" | jq -r '.binary_archive // .binary')
+        pattern=$(get_asset_pattern "$m")
+        [ -z "$pattern" ] && { echo "  ${C_DIM}[skip] $name: no asset for $OS/$ARCH${C_RESET}"; return; }
+
+        MINER_DIR="$BIN_DIR/$id"
+        mkdir -p "$MINER_DIR"
+        BINARY_PATH="$MINER_DIR/$bname"
+        if [ ! -f "$BINARY_PATH" ]; then
+            REPO="$repo"; HOST="$host"; BRANCH="$branch"; RELEASE_PATH="$rpath"; ASSET_PATTERN="$pattern"
+            case "$HOST" in
+                gitlab-release) resolve_gitlab_release ;;
+                gitlab-branch)  resolve_gitlab_branch ;;
+                *)              resolve_github ;;
+            esac
+            if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
+                echo "  ${C_ERR}[x] $name: no matching asset${C_RESET}"; return
+            fi
+            echo "  ${C_DIM}[fetch] $name ($TAG)${C_RESET}"
+            ARCHIVE_PATH="$MINER_DIR/$ARCHIVE_NAME"
+            if ! curl -fL "$DOWNLOAD_URL" -o "$ARCHIVE_PATH" 2>/dev/null; then
+                echo "  ${C_ERR}[x] $name: download failed${C_RESET}"; return
+            fi
+            case "$ARCHIVE_NAME" in
+                *.zip) unzip -o "$ARCHIVE_PATH" -d "$MINER_DIR" >/dev/null 2>&1 || true ;;
+                *.tar.gz|*.tgz) tar -xzf "$ARCHIVE_PATH" -C "$MINER_DIR" || true ;;
+                *.tar) tar -xf "$ARCHIVE_PATH" -C "$MINER_DIR" || true ;;
+            esac
+            rm -f "$ARCHIVE_PATH"
+            FOUND=$(find "$MINER_DIR" -type f -name "$abin" 2>/dev/null | head -1)
+            if [ -n "$FOUND" ] && [ "$(dirname "$FOUND")" != "$MINER_DIR" ]; then
+                cp "$FOUND" "$MINER_DIR/"
+            fi
+            chmod +x "$BINARY_PATH" 2>/dev/null || true
+        fi
+        if [ ! -f "$BINARY_PATH" ]; then
+            echo "  ${C_ERR}[x] $name: binary not found after extraction${C_RESET}"; return
+        fi
+
+        echo -n "  ${C_NAME}$name${C_RESET}: "
+        out=$(mktemp)
+        case "$id" in
+            tnn)     tmo "$((BENCH_TIME + 15))" "$BINARY_PATH" --DERO --daemon-address "$LIVE_DAEMON" --wallet "$WALLET_ADDR" --threads "$THREAD_COUNT" --mine-time "$BENCH_TIME" --no-gpu >"$out" 2>&1 || true ;;
+            go)      tmo "$((BENCH_TIME + 20))" "$BINARY_PATH" --sustained --secs "$BENCH_TIME" -t "$THREAD_COUNT" >"$out" 2>&1 || true ;;
+            zig)     tmo 20 "$BINARY_PATH" --bench >"$out" 2>&1 || true ;;
+            rust)    tmo "$((BENCH_TIME + 20))" "$BINARY_PATH" --sustained -t "$THREAD_COUNT" >"$out" 2>&1 || true ;;
+            go-gpu)  tmo 45 "$BINARY_PATH" -benchpipe 8000 -batch 400 >"$out" 2>&1 || true ;;
+            c|deroluna) tmo "$((BENCH_TIME + 10))" "$BINARY_PATH" -d "$LIVE_DAEMON" -w "$WALLET_ADDR" -t "$THREAD_COUNT" >"$out" 2>&1 || true ;;
+            derohe)
+                if command -v script >/dev/null 2>&1; then
+                    ( cd "$MINER_DIR" && tmo "$((BENCH_TIME + 30))" script -qec "$BINARY_PATH --wallet-address $WALLET_ADDR --daemon-rpc-address $LIVE_DAEMON --mining-threads $THREAD_COUNT" /dev/null ) >"$out" 2>&1 || true
+                else
+                    echo "${C_ERR}no pty (script) for derohe${C_RESET}"; rm -f "$out"; return
+                fi
+                ;;
+            *) rm -f "$out"; echo "${C_ERR}no benchmark method${C_RESET}"; return ;;
+        esac
+        if [ "$id" = "derohe" ]; then
+            raw=$(parse_derohe "$out")
+        elif [ "$id" = "tnn" ]; then
+            raw=$(parse_tnn "$out")
+        else
+            raw=$(parse_hashrate "$out")
+        fi
+        tail_txt=""
+        if [ -s "$out" ]; then
+            tail_txt=$(tail -c 600 "$out" | sed 's/\x1b\[[0-9;]*m//g' | tr -s ' ' | tail -2)
+        fi
+        rm -f "$out"
+        if [ -z "$raw" ]; then
+            echo "${C_ERR}no hashrate reported${C_RESET}"
+            [ -n "$tail_txt" ] && echo "  output tail: $tail_txt"
+            return
+        fi
+        fee_num=${fee%%%}
+        eff=$(awk -v r="$raw" -v f="$fee_num" 'BEGIN{ printf "%.2f", r*(1-f/100) }')
+        echo "${C_OK}${raw} H/s${C_RESET} (fee ${fee}, effective ${eff})"
+        BENCH_ROWS+=("$eff|$raw|$fee|$name|$id")
+    }
+
+    BENCH_ROWS=()
+    for m in "${SUPPORTED[@]:-}"; do
+        bench_miner "$m"
+        sleep 3
+    done
+
+    echo ""
+    if [ "${#BENCH_ROWS[@]}" -eq 0 ]; then
+        echo "${C_ERR}[x] No benchmark results collected${C_RESET}"
+        exit 1
+    fi
+    BENCH_CACHE="$BIN_DIR/.benchmarks.json"
+    declare -A PREV_IDX=()
+    if [ -f "$BENCH_CACHE" ]; then
+        while IFS='=' read -r mid val; do
+            PREV_IDX["$mid"]="$val"
+        done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "$BENCH_CACHE" 2>/dev/null)
+    fi
+    printf '%s\n' "${BENCH_ROWS[@]}" | sort -t'|' -k1 -rn > "$BIN_DIR/._bench_sorted" 2>/dev/null || true
+    printf '%-4s %-30s %12s %8s %14s %10s\n' '#' 'Miner' 'H/s' 'Fee' 'Eff. H/s' 'Δ vs last'
+    while IFS='|' read -r beff braw bfee bname bid; do
+        delta="—"
+        if [ -n "${PREV_IDX[$bid]:-}" ]; then
+            last="${PREV_IDX[$bid]}"
+            d=$(awk -v e="$beff" -v l="$last" 'BEGIN{ printf "%+.1f", e-l }')
+            delta="$d"
+        fi
+        printf '%-4d %-30s %12s %8s %14s %10s\n' "$(( ++_brow ))" "$bname" "$braw" "$bfee" "$beff" "$delta"
+    done < "$BIN_DIR/._bench_sorted"
+    rm -f "$BIN_DIR/._bench_sorted"
+    echo ""
+    winner=$(printf '%s\n' "${BENCH_ROWS[@]}" | sort -t'|' -k1 -rn | head -1)
+    echo "${C_OK}Best miner: ${C_NAME}$(echo "$winner" | cut -d'|' -f4)${C_RESET} (effective ${C_OK}$(echo "$winner" | cut -d'|' -f1) H/s${C_RESET}, raw $(echo "$winner" | cut -d'|' -f2) H/s)"
+    # Save results for next run
+    {
+        printf '{'
+        first=1
+        for row in "${BENCH_ROWS[@]}"; do
+            effv=$(echo "$row" | cut -d'|' -f1)
+            idv=$(echo "$row" | cut -d'|' -f5)
+            if [ "$first" -ne 1 ]; then printf ','; fi
+            printf '"%s":%s' "$idv" "$effv"
+            first=0
+        done
+        printf '}\n'
+    } > "$BENCH_CACHE"
+    echo "[*] Saved to ${C_DIM}$BENCH_CACHE${C_RESET}"
+    exit 0
+fi
+
+# ── List mode ──
+if [ "$MINER_ID" = "list" ]; then
+    draw_banner
+    echo "${C_HDR}Available miners on $OS/$ARCH:${C_RESET}"
+    draw_miner_table "${SUPPORTED[@]:-}"
+    exit 0
+fi
+
+# ── Interactive menu ──
+if [ -z "$MINER_ID" ] || [ "$MINER_ID" = "interactive" ]; then
+    draw_banner
+    echo "${C_HDR}Select a miner:${C_RESET}" >&2
+    draw_miner_table "${SUPPORTED[@]:-}" >&2
+    if [ "${#SUPPORTED[@]}" -eq 0 ]; then
+        echo "${C_ERR}[x] No miners available on this host${C_RESET}" >&2
+        exit 1
+    fi
+    printf "Choice (1-%d): " "${#SUPPORTED[@]}" >&2
+    read -r choice
+    choice=$((choice - 1))
+    MINER_JSON="${SUPPORTED[$choice]:-}"
+    MINER_ID=$(echo "$MINER_JSON" | jq -r '.id')
+else
+    MINER_JSON=$(get_miner_by_id "$MINER_ID")
+fi
+
+if [ -z "$MINER_JSON" ]; then
+    echo "${C_ERR}[x] Miner '$MINER_ID' not found or unavailable${C_RESET}"
+    exit 1
+fi
+if ! miner_hardware_ok "$MINER_JSON"; then
+    echo "${C_ERR}[x] Miner '$MINER_ID' hardware requirements not met on this host${C_RESET}"
+    exit 1
+fi
+
+BINARY_NAME=$(echo "$MINER_JSON" | jq -r '.binary')
+ARCHIVE_BINARY=$(echo "$MINER_JSON" | jq -r '.binary_archive // .binary')
+ASSET_PATTERN=$(get_asset_pattern "$MINER_JSON")
+if [ -z "$ASSET_PATTERN" ]; then
+    echo "${C_ERR}[x] No asset for $MINER_ID on $OS/$ARCH${C_RESET}"
+    exit 1
+fi
+
+# ── Config ──
+mkdir -p "$BIN_DIR"
+
+# Wallet
+DEFAULT_WALLET=""
+if [ -f "$PROJECT_DIR/config.bak" ]; then
+    DEFAULT_WALLET=$(jq -r '.wallet_address // ""' "$PROJECT_DIR/config.bak")
+fi
+if [ -z "$WALLET_ADDR" ]; then
+    if [ -f "$CONFIG_FILE" ]; then
+        WALLET_ADDR=$(jq -r '.wallet_address // ""' "$CONFIG_FILE")
+    fi
+fi
+while [ -z "$WALLET_ADDR" ]; do
+    echo "" >&2
+    if [ -n "$DEFAULT_WALLET" ]; then
+        printf "%s Your DERO wallet address (default: %s, leave empty to use it): " "$ARROW" "$DEFAULT_WALLET" >&2
+    else
+        printf "%s Your DERO wallet address (dero1... or deto1...): " "$ARROW" >&2
+    fi
+    read -r addr
+    if [ -z "$addr" ] && [ -n "$DEFAULT_WALLET" ]; then
+        WALLET_ADDR="$DEFAULT_WALLET"
+    elif [ -z "$addr" ]; then
+        echo "${C_ERR}[x] No address, exiting${C_RESET}" >&2; exit 1
+    else
+        WALLET_ADDR="$addr"
+    fi
+done
+
+# Daemon: --daemon flag > live localhost > saved config > prompt
+if [ "$DAEMON_FLAG" -eq 0 ]; then
+    LOCAL_DAEMON=$(detect_local_daemon) || true
+    if [ -n "$LOCAL_DAEMON" ]; then
+        echo "${C_OK}[*] Local DERO daemon detected: $LOCAL_DAEMON${C_RESET}" >&2
+        DAEMON_URL="$LOCAL_DAEMON"
+    else
+        if [ -f "$CONFIG_FILE" ]; then
+            CFGD=$(jq -r '.daemon_url // ""' "$CONFIG_FILE")
+            if [ -n "$CFGD" ] && is_mining_url "$CFGD"; then
+                DAEMON_URL="$CFGD"
+            else
+                # stale saved config pointing at a non-mining port (e.g. HTTP
+                # JSON-RPC 10102/40402/19999) — never hand it to the miner
+                DAEMON_URL=""
+            fi
+        fi
+        if [ -z "$DAEMON_URL" ]; then
+        DAEMON_JSONS=()
+        while IFS= read -r d; do
+            [ -n "$d" ] && DAEMON_JSONS+=("$d")
+        done < <(jq -c '.daemons[]' "$MINERS_FILE")
+        echo "" >&2
+        echo "${C_HDR}Select daemon endpoint:${C_RESET}" >&2
+        draw_daemon_table "${DAEMON_JSONS[@]:-}" >&2
+        printf "Choice (1-%d): " "${#DAEMON_JSONS[@]}" >&2
+        read -r dchoice
+        dsel="${DAEMON_JSONS[$((dchoice - 1))]:-}"
+        [ -z "$dsel" ] && { echo "${C_ERR}[x] Invalid choice${C_RESET}" >&2; exit 1; }
+        DAEMON_URL=$(echo "$dsel" | jq -r '.url')
+        fi
+    fi
+fi
+
+# Threads
+if [ "$THREAD_COUNT" -eq 0 ]; then
+    if [ -f "$CONFIG_FILE" ]; then
+        THREAD_COUNT=$(jq -r '.thread_count // 0' "$CONFIG_FILE")
+    fi
+fi
+if [ "$THREAD_COUNT" -eq 0 ]; then
+    DEFAULT_TC=$(( ($(nproc 2>/dev/null || echo 4)) - 1 ))
+    [ "$DEFAULT_TC" -lt 1 ] && DEFAULT_TC=1
+    echo "" >&2
+    printf "%s Thread count (default: %s): " "$ARROW" "$DEFAULT_TC" >&2
+    read -r tc
+    THREAD_COUNT="${tc:-$DEFAULT_TC}"
+fi
+
+# Save config
+jq -n \
+    --arg w "$WALLET_ADDR" \
+    --arg d "$DAEMON_URL" \
+    --argjson t "$THREAD_COUNT" \
+    '{wallet_address: $w, daemon_url: $d, thread_count: $t}' > "$CONFIG_FILE"
+echo "${C_OK}[*] Config saved to $CONFIG_FILE${C_RESET}" >&2
+
+# ── Resolve download ──
+REPO=$(echo "$MINER_JSON" | jq -r '.repo')
+HOST=$(echo "$MINER_JSON" | jq -r '.host // "github"')
+BRANCH=$(echo "$MINER_JSON" | jq -r '.branch // "main"')
+RELEASE_PATH=$(echo "$MINER_JSON" | jq -r '.release_path // "releases"')
+echo "" >&2
+echo "${C_HDR}Resolving latest release for $REPO...${C_RESET}" >&2
+
+case "$HOST" in
+    gitlab-release) resolve_gitlab_release ;;
+    gitlab-branch)  resolve_gitlab_branch ;;
+    *)              resolve_github ;;
+esac
+
+if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
+    echo "${C_ERR}[x] No matching asset for pattern: $ASSET_PATTERN${C_RESET}" >&2
+    exit 1
+fi
+echo "  ${C_DIM}Tag:   $TAG${C_RESET}" >&2
+echo "  ${C_DIM}Asset: $ARCHIVE_NAME${C_RESET}" >&2
+
+# ── Dry-run ──
+if $DRY_RUN; then
+    DAEMON_ADDR="${DAEMON_URL#http://}"
+    DAEMON_ADDR="${DAEMON_ADDR#https://}"
+    echo ""
+    echo "--- DRY RUN ---"
+    echo "Miner:   $MINER_ID"
+    echo "Binary:  $BINARY_NAME"
+    echo "Tag:     $TAG"
+    echo "Asset:   $ARCHIVE_NAME"
+    echo "URL:     $DOWNLOAD_URL"
+    echo "Wallet:  $WALLET_ADDR"
+    echo "Daemon:  $DAEMON_ADDR"
+    echo "Threads: $THREAD_COUNT"
+    FLAG_DEV_FEE=$(echo "$MINER_JSON" | jq -r '.flags.dev_fee // empty')
+    if [ -n "$FLAG_DEV_FEE" ] && [ -n "$DEV_FEE_OVERRIDE" ]; then
+        echo "Dev fee: $DEV_FEE_OVERRIDE%"
+    fi
+    exit 0
+fi
+
+# ── Download & extract ──
+MINER_DIR="$BIN_DIR/$MINER_ID"
+mkdir -p "$MINER_DIR"
+BINARY_PATH="$MINER_DIR/$BINARY_NAME"
+
+if [ ! -f "$BINARY_PATH" ]; then
+    ARCHIVE_PATH="$MINER_DIR/$ARCHIVE_NAME"
+    echo "Downloading $ARCHIVE_NAME..." >&2
+    curl -fL "$DOWNLOAD_URL" -o "$ARCHIVE_PATH" || { echo "${C_ERR}[x] Download failed${C_RESET}"; exit 1; }
+    echo "Extracting..." >&2
+    case "$ARCHIVE_NAME" in
+        *.zip)    unzip -o "$ARCHIVE_PATH" -d "$MINER_DIR" ;;
+        *.tar.gz|*.tgz) tar -xzf "$ARCHIVE_PATH" -C "$MINER_DIR" ;;
+        *.tar)    tar -xf "$ARCHIVE_PATH" -C "$MINER_DIR" ;;
+    esac
+    rm -f "$ARCHIVE_PATH"
+    # Lift binary if nested (rename to canonical name)
+    FOUND=$(find "$MINER_DIR" -type f -name "$ARCHIVE_BINARY" 2>/dev/null | head -1)
+    if [ -n "$FOUND" ] && [ "$(dirname "$FOUND")" != "$MINER_DIR" ]; then
+        echo "Lifting binary..." >&2
+        cp "$FOUND" "$BINARY_PATH"
+    fi
+    chmod +x "$BINARY_PATH" 2>/dev/null || true
+else
+    echo "${C_OK}[*] Using cached binary: $BINARY_PATH${C_RESET}" >&2
+fi
+
+if [ ! -f "$BINARY_PATH" ]; then
+    echo "${C_ERR}[x] Binary '$BINARY_NAME' not found after extraction${C_RESET}" >&2
+    find "$MINER_DIR" -type f >&2
+    exit 1
+fi
+
+# ── Build args ──
+DAEMON_ADDR="${DAEMON_URL#http://}"
+DAEMON_ADDR="${DAEMON_ADDR#https://}"
+
+FLAG_COIN=$(echo "$MINER_JSON" | jq -r '.flags.coin // empty')
+FLAG_DAEMON=$(echo "$MINER_JSON" | jq -r '.flags.daemon // "-d"')
+FLAG_WALLET=$(echo "$MINER_JSON" | jq -r '.flags.wallet // "-w"')
+FLAG_THREADS=$(echo "$MINER_JSON" | jq -r '.flags.threads // "-t"')
+FLAG_PORT=$(echo "$MINER_JSON" | jq -r '.flags.port // empty')
+FLAG_DEV_FEE=$(echo "$MINER_JSON" | jq -r '.flags.dev_fee // empty')
+if [ -n "$FLAG_DEV_FEE" ] && [ -n "$DEV_FEE_OVERRIDE" ]; then
+    DEV_FEE="$DEV_FEE_OVERRIDE"
+else
+    DEV_FEE=$(echo "$MINER_JSON" | jq -r '.fee // ""' | tr -d '%')
+fi
+
+CMD_ARGS=()
+if [ -n "$FLAG_COIN" ]; then CMD_ARGS+=("$FLAG_COIN"); fi
+if [ -n "$FLAG_PORT" ]; then
+    DAEMON_HOST="${DAEMON_ADDR%:*}"
+    DAEMON_PORT="${DAEMON_ADDR##*:}"
+    CMD_ARGS+=("$FLAG_DAEMON" "$DAEMON_HOST" "$FLAG_PORT" "$DAEMON_PORT")
+else
+    CMD_ARGS+=("$FLAG_DAEMON" "$DAEMON_ADDR")
+fi
+CMD_ARGS+=("$FLAG_WALLET" "$WALLET_ADDR")
+case "$MINER_ID" in
+    cuda|go-gpu) ;;  # GPU miners: no -t flag
+    *) CMD_ARGS+=("$FLAG_THREADS" "$THREAD_COUNT") ;;
+esac
+if [ -n "$FLAG_DEV_FEE" ] && [ -n "$DEV_FEE" ]; then CMD_ARGS+=("$FLAG_DEV_FEE" "$DEV_FEE"); fi
+
+# ── Launch summary ──
+MINER_NAME=$(echo "$MINER_JSON" | jq -r '.name // "$MINER_ID"')
+LW=7
+[ "${#MINER_NAME}" -gt "$LW" ] && LW="${#MINER_NAME}"
+[ "${#BINARY_PATH}" -gt "$LW" ] && LW="${#BINARY_PATH}"
+[ "${#DAEMON_ADDR}" -gt "$LW" ] && LW="${#DAEMON_ADDR}"
+[ "${#WALLET_ADDR}" -gt "$LW" ] && LW="${#WALLET_ADDR}"
+[ "${#THREAD_COUNT}" -gt "$LW" ] && LW="${#THREAD_COUNT}"
+LW=$((LW + 3))
+term_w="${COLUMNS:-80}"
+[ "$LW" -gt "$((term_w - 4))" ] && LW=$((term_w - 4))
+
+summary_line() {
+    local label="$1" value="$2"
+    local pad=$((LW - ${#label} - 2))
+    printf '%b' "${C_OK}${V}${C_RESET}  ${C_NAME}$label${C_RESET}  ${C_BIN}$(printf '%-*s' "$pad" "$value")${C_RESET}${C_OK}${V}${C_RESET}\n"
+}
+echo ""
+echo "${C_OK}${TL}$(rep "$H" "$LW")${TR}${C_RESET}"
+summary_line "Miner" "$MINER_NAME"
+summary_line "Binary" "$BINARY_PATH"
+summary_line "Daemon" "$DAEMON_ADDR"
+summary_line "Wallet" "$WALLET_ADDR"
+summary_line "Threads" "$THREAD_COUNT"
+echo "${C_OK}${BL}$(rep "$H" "$LW")${BR}${C_RESET}"
+echo ""
+
+# ── Launch loop ──
+RESTART_COUNT=0
+LOGFILE=""
+if $AUTO_RESTART; then
+    LOGDIR="$BIN_DIR/logs"
+    mkdir -p "$LOGDIR" 2>/dev/null || true
+    LOGFILE="$LOGDIR/$MINER_ID-$(date +%Y%m%d-%H%M%S).log"
+fi
+while true; do
+    echo "=== $(date +%H:%M:%S) run $((RESTART_COUNT + 1))/$MAX_RESTART ($MINER_ID) ===" >> "$LOGFILE" 2>/dev/null || true
+    "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1 || true
+
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    if $AUTO_RESTART && [ $RESTART_COUNT -lt $MAX_RESTART ]; then
+        echo "[*] Restarting in ${RESTART_DELAY}s (attempt $RESTART_COUNT/$MAX_RESTART)..."
+        echo "Restarting in ${RESTART_DELAY}s (attempt $RESTART_COUNT/$MAX_RESTART)" >> "$LOGFILE" 2>/dev/null || true
+        sleep "$RESTART_DELAY"
+    else
+        break
+    fi
+done
+if $AUTO_RESTART; then
+    echo "[*] Log: $LOGFILE"
+fi

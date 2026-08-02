@@ -1,0 +1,117 @@
+function Read-Catalog {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        Write-Host "[x] Catalog not found: $Path" -ForegroundColor Red
+        return $null
+    }
+    try {
+        $json = Get-Content $Path -Raw -Encoding UTF8
+        return ConvertFrom-Json $json
+    } catch {
+        Write-Host "[x] Failed to parse catalog: $_" -ForegroundColor Red
+        return $null
+    }
+}
+
+function Get-MinerByMinerId {
+    param([object]$Catalog, [string]$MinerId)
+    foreach ($m in $Catalog.miners) {
+        if ($m.id -eq $MinerId) { return $m }
+    }
+    return $null
+}
+
+function Get-MinerBinaryName {
+    param([object]$Miner, [string]$Os = '')
+    $name = $null
+    # Per-asset override first (needed when a release names its binary per OS).
+    if ($Os -and $Miner.PSObject.Properties['assets']) {
+        foreach ($a in $Miner.assets) {
+            if ([string]$a.os -eq $Os) {
+                if ($a.PSObject.Properties['binary'] -and $a.binary) { $name = [string]$a.binary }
+                break
+            }
+        }
+    }
+    if (-not $name -and $Miner.binary) { $name = [string]$Miner.binary }
+    if (-not $name) {
+        $fallback = @{
+            'c'         = 'dirtybird-c-miner'
+            'rust'      = 'dirtybird-dero-miner'
+            'go'        = 'dirtybird-go-miner'
+            'zig'       = 'dirtybird-zig-miner'
+            'cuda'      = 'dirtybird-openastronv_v3'
+            'go-gpu'    = 'dirtybird-go-gpu-miner'
+        }
+        $name = $fallback[$Miner.id]
+    }
+    if ($Os -eq 'windows' -and $name -and -not $name.EndsWith('.exe')) { $name += '.exe' }
+    return $name
+}
+
+function Get-MinerType {
+    param([object]$Miner)
+    if ($Miner.PSObject.Properties['type'] -and $Miner.type) { return ([string]$Miner.type).ToLower() }
+    $fallback = @{
+        'cuda'    = 'gpu'
+        'go-gpu'  = 'gpu'
+        'tnn'     = 'both'
+    }
+    $t = $fallback[$Miner.id]
+    if (-not $t) { $t = 'cpu' }
+    return $t
+}
+
+function Get-MinerArchiveBinaryName {
+    param([object]$Miner, [string]$Os = '')
+    $name = $null
+    if ($Os -and $Miner.PSObject.Properties['assets']) {
+        foreach ($a in $Miner.assets) {
+            if ([string]$a.os -eq $Os) {
+                if ($a.PSObject.Properties['binary_archive'] -and $a.binary_archive) { $name = [string]$a.binary_archive }
+                elseif ($a.PSObject.Properties['binary'] -and $a.binary) { $name = [string]$a.binary }
+                break
+            }
+        }
+    }
+    if (-not $name -and $Miner.PSObject.Properties['binary_archive'] -and $Miner.binary_archive) { $name = [string]$Miner.binary_archive }
+    if (-not $name) { $name = Get-MinerBinaryName $Miner $Os }
+    if ($Os -eq 'windows' -and $name -and -not $name.EndsWith('.exe')) { $name += '.exe' }
+    return $name
+}
+
+function Get-MinerCliArgs {
+    param([object]$Miner)
+    $noThreads = @('cuda', 'go-gpu').Contains([string]$Miner.id)
+    $flags = @{
+        daemon    = '-d'
+        wallet    = '-w'
+        threads   = if ($noThreads) { $null } else { '-t' }
+        coin      = $null
+        port      = $null
+        cpu_off   = $null
+        gpu_off   = $null
+        dev_fee   = $null
+    }
+    if ($Miner.PSObject.Properties['flags']) {
+        foreach ($f in $Miner.flags.PSObject.Properties) {
+            $flags[$f.Name] = [string]$f.Value
+        }
+    }
+    if ($flags['dev_fee'] -and $Miner.PSObject.Properties['fee']) {
+        $flags['dev_fee_value'] = ([string]$Miner.fee).TrimEnd('%')
+    }
+    return $flags
+}
+
+function Get-MinerAsset {
+    param([object]$Miner, [string]$Os, [string]$Arch)
+    if ($Miner.PSObject.Properties['assets']) {
+        foreach ($a in $Miner.assets) {
+            $aOs   = [string]$a.os
+            $aArch = [string]$a.arch
+            if ($aOs -eq $Os -and $aArch -eq $Arch) { return $a }
+        }
+    }
+    return $null
+}
