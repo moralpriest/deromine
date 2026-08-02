@@ -26,6 +26,7 @@ show_help() {
 Usage: deromine [options]
 
   --version              Show version and exit
+  --announce             Print the release announcement
   --miner=<id>           Miner id, or "list" to show the catalog table
   --wallet=<addr>        DERO wallet address
   --daemon=<url>         Node/pool host:port (scheme optional)
@@ -63,6 +64,24 @@ while [[ $# -gt 0 ]]; do
         --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
         -h|--help|help|/\?) show_help; exit 0 ;;
         --version) echo "deromine 1.0.0"; exit 0 ;;
+        --announce) cat <<'ANNOUNCE'
+
+  deromine v1.0.0 — one launcher for every DERO miner, on any OS.
+
+    ▪ Dirtybird C / Rust / Go / Zig + CUDA / Go-GPU
+    ▪ Official DeroHE, DeroLuna, TNN, Astronv
+    ▪ Auto-downloads releases from GitHub/GitLab — no compilation
+    ▪ Interactive menu, CLI flags, benchmark mode, auto-restart
+    ▪ Linux · macOS · Windows · Termux
+
+  Install:
+    curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash
+
+  Repo: https://github.com/moralpriest/deromine
+  Open source. 0%-fee miners first, dev-fee miners clearly marked.
+
+ANNOUNCE
+        exit 0 ;;
         *) echo "Unknown: $1"; exit 1 ;;
     esac
 done

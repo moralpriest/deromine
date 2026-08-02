@@ -50,6 +50,9 @@ for ($i = 0; $i -lt $params.Count; $i++) {
         Write-Host "deromine $script:DeromineVersion"
         exit 0
     }
+    if ($params[$i] -eq '--announce') {
+        Show-Announcement
+    }
     switch -Wildcard ($params[$i]) {
         '--daemon=*'          { $daemonUrl      = Join-DaemonValue $params $i; $daemonFlag = $true }
         '--wallet=*'          { $walletAddress   = ($params[$i] -split '=')[1] }
