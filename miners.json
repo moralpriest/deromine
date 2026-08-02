@@ -42,7 +42,6 @@
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Rust-Miner-amd64-*.tar.gz" },
-        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Rust-Miner-arm64-*.tar.gz" },
         { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Rust-Miner-android-arm64-*.tar.gz" },
         { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-Rust-Miner-win64-*.zip" }
       ]
@@ -59,7 +58,6 @@
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Go-Miner-amd64-*.tar.gz" },
-        { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Go-Miner-arm64-*.tar.gz" },
         { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Go-Miner-android-arm64-*.tar.gz" },
         { "os": "macos",   "arch": "aarch64","pattern": "Dirtybird-Go-Miner-macos-arm64-*.tar.gz" },
         { "os": "windows", "arch": "amd64",  "pattern": "Dirtybird-Go-Miner-win64-*.zip" }

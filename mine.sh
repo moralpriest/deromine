@@ -176,7 +176,10 @@ get_miner_by_id() {
 
 get_asset_pattern() {
     local miner_json="$1"
-    echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '.assets[] | select(.os == $os and .arch == $arch) | .pattern'
+    # One pattern per OS/arch (first match wins). Multiple entries for the
+    # same OS/arch would produce a multi-line pattern that can never match
+    # a real release asset name.
+    echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '.assets[] | select(.os == $os and .arch == $arch) | .pattern' | head -1
 }
 
 # ── Hardware detection ──
@@ -782,6 +785,10 @@ esac
 
 if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
     echo "${C_ERR}[x] No matching asset for pattern: $ASSET_PATTERN${C_RESET}" >&2
+    if [ -n "${API_RESP:-}" ] && [ "$HOST" != "gitlab-release" ] && [ "$HOST" != "gitlab-branch" ]; then
+        echo "  ${C_DIM}Available assets in the latest release:${C_RESET}" >&2
+        echo "$API_RESP" | jq -r '.assets[].name' | sed 's/^/    /' >&2
+    fi
     exit 1
 fi
 echo "  ${C_DIM}Tag:   $TAG${C_RESET}" >&2
