@@ -7,8 +7,20 @@ required.
 
 ## Installation
 
+### One-liner (Linux/macOS/Termux)
+
 ```bash
-git clone https://github.com/<your-user>/deromine.git
+curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash
+```
+
+Installs to `~/.local/share/deromine` and puts `deromine` on PATH via
+`~/.local/bin/deromine`. Re-run to update. If `~/.local/bin` is not on your
+PATH yet, add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile.
+
+### Manual (any OS)
+
+```bash
+git clone https://github.com/moralpriest/deromine.git
 cd deromine
 ./deromine --miner=list        # first run (no install needed)
 ln -s "$PWD/deromine" ~/.local/bin/deromine   # optional: put it on PATH
@@ -22,6 +34,30 @@ Requirements:
   systems. On macOS/BSD, benchmarking runs without GNU `timeout` (no cap).
 - Windows: run `deromine.cmd` from cmd or PowerShell; `pwsh ./mine.ps1` works
   from any shell.
+
+### Why PowerShell?
+
+The primary runner is PowerShell 7, with `mine.sh` as a fallback. PowerShell
+was chosen for the main implementation because it is:
+
+- **Genuinely cross-platform** — runs on Windows, macOS, and Linux (and in
+  Termux on Android via pwsh builds), so one codebase covers every OS the
+  miners target. The `$IsLinux` / `$IsWindows` / `$IsMacOS` auto-variables
+  make platform detection trivial.
+- **Built-in JSON handling** — `ConvertFrom-Json` / `ConvertTo-Json` parse the
+  GitHub/GitLab release APIs and the catalog with zero external dependencies.
+  The bash fallback needs `jq`.
+- **Rich interactive UI** — colored tables, banners, and prompts with ANSI
+  escape codes come for free, giving the menu a native feel on any terminal.
+- **Native process control** — `Start-Process`, exit-code checks, and error
+  trapping make the auto-restart loop straightforward.
+- **First-class on Windows** — Windows is a major DERO mining platform, and
+  PowerShell is the one shell guaranteed to be there. `deromine.cmd` is a thin
+  wrapper that picks `pwsh` or Windows PowerShell 5.1 automatically.
+
+The bash fallback exists so Termux and minimal Linux systems without `pwsh`
+still get a working (if simpler) launcher. Both paths share the same
+`miners.json` catalog and CLI surface.
 
 ## Usage
 
@@ -108,6 +144,7 @@ Astronv 4.9%) ignore this flag.
 deromine/
 ├── deromine                      # Unified launcher (bash wrapper, auto-detect)
 ├── deromine.cmd                  # Unified launcher for Windows cmd
+├── install.sh                    # One-line installer (curl | bash)
 ├── mine.ps1                      # Main PowerShell launcher
 ├── mine.sh                       # Bash/Termux launcher
 ├── miners.json                   # Catalog of available miners and release assets
