@@ -26,6 +26,12 @@ function Start-Miner {
         $argsList += @($FlagMap.dev_fee, [string]$FlagMap.dev_fee_value)
     }
     if ($ExtraArgs) { $argsList += $ExtraArgs }
+    if ([string]::IsNullOrEmpty($WalletAddress)) {
+        # Terminating error so Start-MinerAutoRestart's catch logs it as a
+        # crash instead of silently writing a stray '1' and restarting.
+        throw 'No wallet address to pass to the miner.'
+    }
+    Write-Host "[*] Command: $BinaryPath $($argsList -join ' ')" -ForegroundColor DarkGray
     & $BinaryPath @argsList
 }
 

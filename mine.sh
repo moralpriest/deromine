@@ -907,6 +907,21 @@ summary_line "Threads" "$THREAD_COUNT"
 echo "${C_OK}${BL}$(rep "$H" "$LW")${BR}${C_RESET}"
 echo ""
 
+# ── Preflight: never launch a miner with an empty value ──
+if [ -z "$WALLET_ADDR" ]; then
+    echo "${C_ERR}[x] No wallet address to pass to the miner${C_RESET}" >&2
+    exit 1
+fi
+if [ -z "$DAEMON_ADDR" ]; then
+    echo "${C_ERR}[x] No daemon address to pass to the miner${C_RESET}" >&2
+    exit 1
+fi
+if [ -z "$THREAD_COUNT" ] || ! [ "$THREAD_COUNT" -ge 1 ] 2>/dev/null; then
+    echo "${C_ERR}[x] No valid thread count: '${THREAD_COUNT:-}'${C_RESET}" >&2
+    exit 1
+fi
+echo "  ${C_DIM}[*] Command: $BINARY_PATH ${CMD_ARGS[*]}${C_RESET}" >&2
+
 # ── Launch loop ──
 RESTART_COUNT=0
 LOGFILE=""
