@@ -5,6 +5,45 @@ community DERO miners (Dirtybird C/Rust/Go/Zig/CUDA/Go-GPU, official DeroHE, Der
 TNN, Astronv) straight from their official GitHub/GitLab releases — no manual compilation
 required.
 
+## Install with AI
+
+Want your AI assistant to handle the install? Copy this prompt into Claude Code,
+ChatGPT, Copilot, Gemini, or any coding assistant — it will detect your OS,
+install prerequisites, run the official installer, and verify everything works:
+
+````markdown
+Install deromine (a DERO miners launcher) on this machine for me.
+
+1. Detect the OS first (`uname -s` on Linux/macOS/Termux; `$env:OS` on Windows).
+2. Linux/macOS/Termux: make sure `curl` and `git` are installed, then run the
+   official one-line installer:
+   `curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash`
+3. Windows: from PowerShell (5.1 or 7) run:
+   `irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex`
+4. Verify the install by running `deromine --miner=list` and confirm the miner
+   catalog table prints. If `deromine` is not found, open a new shell first
+   (the installer updates PATH); if it still fails, check
+   `~/.local/share/deromine` (Linux/macOS) or
+   `%USERPROFILE%\.local\share\deromine` (Windows) exists.
+5. The full interactive menu needs PowerShell 7 (`pwsh`). If it is missing,
+   tell the user how to install it for their OS (winget/brew/apt/dnf/pacman), or
+   verify the bash fallback works by running
+   `~/.local/share/deromine/mine.sh --miner=list`.
+6. Only install and verify — do NOT configure a wallet, start mining, or run any
+   miner binary without asking the user first. Miners are third-party binaries
+   with dev fees, so never download anything except from the official repo
+   https://github.com/moralpriest/deromine
+7. Report what you did, the install location, and how to run it.
+````
+
+Short version, if you just want the essentials:
+
+```
+Install deromine from https://github.com/moralpriest/deromine using its official
+installer for this OS, verify it with `deromine --miner=list`, and don't start
+mining or configure a wallet without asking me.
+```
+
 ## Installation
 
 ### One-liner (Linux/macOS/Termux)
