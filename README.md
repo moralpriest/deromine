@@ -44,6 +44,25 @@ installer for this OS, verify it with `deromine --miner=list`, and don't start
 mining or configure a wallet without asking me.
 ```
 
+## Release
+
+🎉 deromine is released as a cross-platform DERO mining launcher. Launch it from
+an installed terminal with:
+
+```bash
+deromine
+```
+
+### Credits
+
+🙏 **Special thanks to DirtyBird** for the tremendous hard work behind their
+completely open-source, free DERO miners used by this project. Their work makes
+accessible CPU and GPU mining tools available to the DERO community 💙
+
+Please visit and support the upstream DirtyBird projects when using their
+miners. Miner binaries are downloaded from their upstream release repositories
+as defined in `miners.json`.
+
 ## Installation
 
 ### One-liner (all OSes)
@@ -126,11 +145,16 @@ Requirements:
 
 - **PowerShell 7+ (`pwsh`)** for the full interactive menu and all CLI modes. The
   installers attempt to add it automatically when missing; Windows uses `winget`,
-  while Unix uses the native package manager where supported.
+  while Unix uses the native package manager where supported. On macOS, the
+  executable is spelled `pwsh` (p-w-s-h); Homebrew installs it with
+  `brew install --cask powershell`.
 
 - Without `pwsh`, the `deromine` wrapper falls back to `mine.sh`
   (needs `bash`, `jq`, `curl`, `tar`/`unzip`) — fine for Termux and minimal
-  systems. On macOS/BSD, benchmarking runs without GNU `timeout` (no cap).
+  systems. The curl-based installer reads an interactive PowerShell-install
+  confirmation from `/dev/tty`; use `DEROMINE_AUTO_INSTALL_PWSH=1` for an
+  unattended install or `DEROMINE_SKIP_PWSH=1` to keep the Bash fallback. On
+  macOS/BSD, benchmarking runs without GNU `timeout` (no cap).
 - Windows: run `deromine.cmd` from cmd or PowerShell; `pwsh ./mine.ps1` works
   from any shell.
 
