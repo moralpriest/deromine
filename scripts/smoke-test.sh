@@ -115,6 +115,15 @@ if PREFIX="$fake_prefix" bash -c '
 else
     fail "derohe excluded on Termux"
 fi
+# ...and zig too (its arm64 build dumps usage instead of mining on Android)...
+if PREFIX="$fake_prefix" bash -c '
+    [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ] \
+        && jq -e ".miners[] | select(.id == \"zig\") | .unsupported | index(\"termux\")" miners.json >/dev/null 2>&1
+'; then
+    pass "zig excluded on Termux"
+else
+    fail "zig excluded on Termux"
+fi
 # ...while dirtybird rust stays available.
 if PREFIX="$fake_prefix" bash -c '
     [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ] \

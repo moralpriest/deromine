@@ -72,6 +72,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "unsupported": ["termux"],
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Zig-Miner-amd64-*.tar.gz" },

@@ -151,8 +151,10 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $fakePrefix 'bin') -Force | Out-Null
     $env:PREFIX = $fakePrefix
     $deroheT = Get-MinerByMinerId $catalog 'derohe'
+    $zigT = Get-MinerByMinerId $catalog 'zig'
     $rustT = Get-MinerByMinerId $catalog 'rust'
     Assert-True '  derohe hidden on Termux' (-not (Test-MinerHardwareSupported $deroheT))
+    Assert-True '  zig hidden on Termux (arm64 build broken on Android)' (-not (Test-MinerHardwareSupported $zigT))
     Assert-True '  rust still supported on Termux' (Test-MinerHardwareSupported $rustT)
 } finally {
     $env:PREFIX = $savedPrefix

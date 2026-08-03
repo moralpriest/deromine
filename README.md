@@ -249,7 +249,7 @@ deromine/
 | c | Dirtybird C++ | dirtybird-c-miner | cpu | 0% | Open source | Best compatibility |
 | rust | Dirtybird Rust | dirtybird-dero-miner | cpu | 0% | Open source | Fastest CPU miner |
 | go | Dirtybird Go | dirtybird-go-miner | cpu | 0% | Open source | Moderate CPU usage |
-| zig | Dirtybird Zig | dirtybird-zig-miner | cpu | 0% | Open source | Small binary |
+| zig | Dirtybird Zig | dirtybird-zig-miner | cpu | 0% | Open source | Small binary; not on Termux/Android |
 | cuda | Dirtybird CUDA | dirtybird-openastronv_v3 | gpu | 0% | Open source | NVIDIA GPU required |
 | go-gpu | Dirtybird Go GPU | dirtybird-go-gpu-miner | gpu | 0% | Open source | Any Vulkan GPU |
 | derohe | DERO HE Default Miner | dero-miner-linux-amd64 | cpu | 0% | Official | Official default miner; not on Termux/Android |
@@ -261,9 +261,10 @@ Ordering is intentional: open-source 0%-fee miners first, then the official Dero
 miner, then closed-source / dev-fee miners at the bottom. Miners whose hardware
 requirements are not met (e.g. GPU miners without the right GPU) are hidden from
 the list on that host, as are miners marked `unsupported` for the platform — for
-example `derohe` on Termux/Android, whose arm64 release fails its own ELF check.
-On Termux, use the Dirtybird miners (`c`, `rust`, `go`, `zig`), which ship
-dedicated Android arm64 builds.
+example `derohe` and `zig` on Termux/Android, whose arm64 releases are broken
+there (derohe fails its own ELF self-check; zig's build dumps its usage screen
+instead of mining even with correct arguments). On Termux, use the Dirtybird
+`c`, `rust`, or `go` miners, which ship working Android arm64 builds.
 
 ### List columns
 
@@ -371,7 +372,14 @@ Both suites fail with exit code 1 on any regression.
 - **derohe is missing from the list on Termux/Android**: derohe's arm64 release
   fails its own ELF self-check (`unexpected e_type: 2`) on Android/Termux, so it
   is marked `unsupported` there and hidden. Use the Dirtybird miners instead:
-  `deromine --miner=rust` (or `c`/`go`/`zig`) — they ship Android arm64 builds.
+  `deromine --miner=rust` (or `c`/`go`) — they ship working Android arm64
+  builds.
+- **zig prints its usage screen instead of mining on Termux/Android**: the
+  official Dirtybird Zig miner arm64 build (v0.3.0) rejects its own arguments on
+  Android — it prints `Usage: zig-miner ...` and exits with exit code 1 even
+  with correct `-d/-w/-t` flags, while the same binary mines fine on Linux and
+  the Rust miner works on the same device. It is therefore marked `unsupported`
+  on Termux and hidden. Use `deromine --miner=rust` (or `go`/`c`) on Android.
 - **A miner prints its usage/help screen instead of mining** (e.g. the zig
   miner dumping `Usage: zig-miner ...` right after the `[*] Command:` line):
   this can happen when the cached binary in `bin/<miner-id>/` is stale or
