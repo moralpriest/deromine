@@ -177,6 +177,7 @@ Select a miner from the menu, configure wallet/daemon/threads, and start mining.
 | `--benchmark` | Benchmark all supported miners |
 | `--bench-time=...` | Benchmark seconds per miner (default 30) |
 | `--output-dir=...` | Where binaries are stored (default `bin/`) |
+| `--add-exclusion` | Add a Windows Defender folder exclusion for `bin/` (Windows, UAC prompt) |
 | `--config=...` | Path to config file (default `config.json`) |
 | `-h` / `--help` / `/?` | Show usage and exit |
 
@@ -436,7 +437,10 @@ Both suites fail with exit code 1 on any regression.
   threat protection → Manage settings → Exclusions → Add a folder** →
   `%USERPROFILE%\.local\share\deromine\bin` — and restore the detection in
   **Protection history** if listed. Then run deromine again — it re-downloads
-  the miner.
+  the miner. deromine can do this for you: when the integrity check fails on
+  Windows it offers to add the exclusion (one UAC prompt, requires admin
+  consent) and then retries the download automatically in the same session.
+  You can also run it standalone: `deromine --add-exclusion`.
 - **Miner exits instantly on Windows with no output** (right after the
   `[*] Command:` line, prompt returns immediately): Windows releases ship
   runtime DLLs next to the exe (e.g. dirtybird-c-miner ships `libstdc++-6.dll`,

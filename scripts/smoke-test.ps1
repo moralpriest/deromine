@@ -185,6 +185,30 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 4d. Windows Defender exclusion helpers must degrade gracefully off-Windows:
+# Get-MpPreference / powershell.exe don't exist there, so both helpers return
+# $false instead of throwing. Tests the REAL functions from platform.ps1.
+Write-Host ''
+Write-Host '4d. Defender exclusion helpers:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'platform.ps1')
+    if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
+        # On Windows the helpers run for real: Test returns a bool, Add either
+        # returns a bool or a (caught) false for a cancelled UAC prompt.
+        $t = Test-DefenderExclusion (Join-Path $env:TEMP 'deromine-test')
+        Assert-True "  Test-DefenderExclusion returns bool (got '$t')" ($t -is [bool])
+    } else {
+        Assert-True '  Test-DefenderExclusion false off-Windows' (-not (Test-DefenderExclusion '/tmp/deromine-x'))
+        Assert-True '  Add-DefenderExclusion false off-Windows (no throw)' (-not (Add-DefenderExclusion '/tmp/deromine-x'))
+    }
+    $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  integrity failure offers Defender exclusion' ($mineText -match 'Add-DefenderExclusion')
+    Assert-True '  --add-exclusion flag wired' ($mineText -match '--add-exclusion')
+} catch {
+    Assert-True '  Defender exclusion helpers work' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+}
+
 # 5. Binary name resolution
 Write-Host ''
 Write-Host '5. Binary name resolution:' -ForegroundColor Yellow

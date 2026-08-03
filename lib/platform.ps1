@@ -289,3 +289,67 @@ function Test-LocalDaemonUrl {
     }
     return $null
 }
+
+# ── Windows Defender exclusions ──
+# Closed-source miners (e.g. deroluna) are frequently false-positived by
+# Windows Defender, which locks/quarantines the freshly-extracted exe. The
+# reliable fix is a folder exclusion for the binaries directory. These helpers
+# read the current exclusions and add one via an ELEVATED (UAC) Windows
+# PowerShell — Add-MpPreference requires admin rights, so deromine never
+# touches Defender policy without explicit user consent.
+
+# Is a folder already excluded from Defender real-time protection?
+function Test-DefenderExclusion {
+    param([string]$Path)
+    if (-not $env:SystemRoot) { return $false }   # not Windows
+    try {
+        $prefs = Get-MpPreference -ErrorAction Stop
+        $target = $Path.TrimEnd('\')
+        foreach ($e in @($prefs.ExclusionPath)) {
+            if (([string]$e).TrimEnd('\') -eq $target) { return $true }
+        }
+        return $false
+    } catch {
+        return $false
+    }
+}
+
+# Add a folder exclusion, elevating via a UAC prompt. Returns $true only if
+# the exclusion is confirmed in place afterwards (already present counts).
+function Add-DefenderExclusion {
+    param([string]$Path)
+    if (Test-DefenderExclusion $Path) { return $true }
+    if (-not $env:SystemRoot) { return $false }   # not Windows
+    $tmpDir = [System.IO.Path]::GetTempPath()
+    $tmpScript = Join-Path $tmpDir ('deromine-mp-' + [guid]::NewGuid().ToString('N') + '.ps1')
+    $tmpOut = Join-Path $tmpDir ('deromine-mp-' + [guid]::NewGuid().ToString('N') + '.txt')
+    $escPath = $Path -replace "'", "''"
+    @"
+`$ErrorActionPreference = 'Stop'
+try {
+    Add-MpPreference -ExclusionPath '$escPath' -ErrorAction Stop
+    'OK' | Out-File -Encoding ascii '$tmpOut'
+} catch {
+    ('ERR ' + `$_.Exception.Message) | Out-File -Encoding ascii '$tmpOut'
+}
+"@ | Set-Content -LiteralPath $tmpScript -Encoding ASCII
+    try {
+        # -Verb RunAs shows the UAC consent prompt; -Wait blocks until done.
+        # The temp path may contain spaces (e.g. C:\Users\John Doe\...), so it
+        # must be embedded in quotes — Start-Process joins ArgumentList with
+        # spaces and does NOT re-quote the elements.
+        $null = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $tmpScript + '"')) -ErrorAction Stop
+    } catch {
+        # User cancelled the UAC prompt (or has no admin rights).
+        Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+    Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
+    $out = ''
+    if (Test-Path $tmpOut) {
+        $out = (Get-Content -LiteralPath $tmpOut -Raw -ErrorAction SilentlyContinue).Trim()
+        Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+    }
+    return ($out -eq 'OK')
+}

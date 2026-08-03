@@ -21,6 +21,7 @@ $restartDelay    = 10
 $dryRun          = $false
 $benchmark       = $false
 $benchTime       = 30
+$addExclusion    = $false
 $devFee          = ''
 $outputDir       = Join-Path $projectDir 'bin'
 $configPath      = Join-Path $projectDir 'config.json'
@@ -52,6 +53,9 @@ for ($i = 0; $i -lt $params.Count; $i++) {
     }
     if ($params[$i] -eq '--announce') {
         Show-Announcement
+    }
+    if ($params[$i] -eq '--add-exclusion') {
+        $addExclusion = $true
     }
     switch -Wildcard ($params[$i]) {
         '--daemon=*'          { $daemonUrl      = Join-DaemonValue $params $i; $daemonFlag = $true }
@@ -103,6 +107,25 @@ if ($minerType -and $minerType -eq 'list') {
 
 # ── Resolve miner (interactive or --miner flag) ──
 $platform = Get-PwshPlatform
+
+# ── Add a Windows Defender exclusion for the binaries folder (Windows only) ──
+if ($addExclusion) {
+    if ($platform.os -ne 'windows') {
+        Write-Host "[x] --add-exclusion only works on Windows" -ForegroundColor Red
+        exit 1
+    }
+    if (Test-DefenderExclusion $outputDir) {
+        Write-Success "Already excluded from Defender: $outputDir"
+        exit 0
+    }
+    if (Add-DefenderExclusion $outputDir) {
+        Write-Success "Defender exclusion added: $outputDir"
+        exit 0
+    }
+    Write-Host "[x] Exclusion not added (UAC cancelled or no admin rights)." -ForegroundColor Red
+    Write-Host "    Add it manually: Windows Security > Virus & threat protection > Manage settings > Exclusions > Add a folder > '$outputDir'" -ForegroundColor DarkYellow
+    exit 1
+}
 
 # ── Benchmark mode ──
 if ($benchmark) {
@@ -412,6 +435,29 @@ if ($needsDownload) {
     if (-not (Test-BinaryIntegrity $binaryPath $platform.os)) {
         Write-Host "`n[x] Extracted binary '$binaryName' failed integrity check:" -ForegroundColor Red
         Write-Host (Get-IntegrityFailureHint -Path $binaryPath -Os $platform.os -MinerDir $minerDir) -ForegroundColor Yellow
+        # On Windows this is almost always Defender interfering with the
+        # freshly-extracted exe. Offer to add a folder exclusion (elevated)
+        # and auto-retry — re-running alone just re-downloads into the lock.
+        if ($platform.os -eq 'windows') {
+            if (Test-DefenderExclusion $outputDir) {
+                Write-Host "  '$outputDir' is already excluded from Defender. If it keeps failing, restore the detection in Windows Security > Protection history." -ForegroundColor DarkYellow
+            } else {
+                $answer = ''
+                try { $answer = Read-Host "`nAdd a Windows Defender exclusion for '$outputDir' (fixes the lock/quarantine loop; a UAC prompt will appear)? [Y/n]" } catch { $answer = 'n' }
+                if ($answer -match '^(y|yes)?$') {
+                    if (Add-DefenderExclusion $outputDir) {
+                        Write-Success "Defender exclusion added for '$outputDir'"
+                        # Retry once with the exclusion in place — the miner
+                        # downloads and launches in the same session.
+                        Remove-Item $minerDir -Recurse -Force -ErrorAction SilentlyContinue
+                        & $PSCommandPath --miner=$($miner.id) @($args)
+                        exit $LASTEXITCODE
+                    }
+                    Write-Host "  Exclusion not added (cancelled or failed). Add it manually:" -ForegroundColor DarkYellow
+                    Write-Host "    Windows Security > Virus & threat protection > Manage settings > Exclusions > Add a folder > '$outputDir'" -ForegroundColor DarkYellow
+                }
+            }
+        }
         exit 1
     }
     # Record the release tag so future runs can detect a stale cache.
