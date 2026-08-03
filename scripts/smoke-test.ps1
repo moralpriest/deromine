@@ -346,6 +346,38 @@ try {
     Remove-Item $tmpExit -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 6g. Launch-failure memory: a miner that fails its startup gate twice in a
+# row is hidden from the list until a launch actually succeeds. Tests the REAL
+# Mark-MinerLaunchOutcome / Test-MinerFailsOnHost from download.ps1.
+Write-Host ''
+Write-Host '6g. Launch-failure memory:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'download.ps1')
+    $tmpMem = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-mem-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path (Join-Path $tmpMem 'go-gpu') -Force | Out-Null
+    Assert-True '  no failures recorded -> listed' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 2
+    Assert-True '  one fast failure -> still listed' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 2
+    Assert-True '  two fast failures -> hidden' (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu')
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 0 -ElapsedSec 30
+    Assert-True '  successful run resets -> listed again' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 130 -ElapsedSec 3
+    Assert-True '  Ctrl+C does not count as failure' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 60
+    Assert-True '  slow exit does not count as startup failure' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    # PowerShell reports the NTSTATUS Ctrl+C code as the signed form -1073741510.
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode -1073741510 -ElapsedSec 3
+    Assert-True '  signed Ctrl+C code does not count as failure' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    $uiText = Get-Content (Join-Path $libDir 'ui.ps1') -Raw
+    Assert-True '  miner list filters launch-failed miners' ($uiText -match 'Test-MinerFailsOnHost')
+} catch {
+    Assert-True '  launch-failure memory works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    Remove-Item $tmpMem -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
 Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow

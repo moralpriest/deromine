@@ -431,6 +431,7 @@ $daemonDisplay = $effectiveDaemon -replace '^https?://', ''
 Write-LaunchSummary -Miner $miner -Binary $binaryPath -Daemon $daemonDisplay -Wallet $effectiveWallet -Threads $effectiveThreads -DevFee $showDevFee
 
 # ── Launch (foreground) ──
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
 if ($autoRestart) {
     Start-MinerAutoRestart `
         -MinerId $miner.id `
@@ -446,3 +447,7 @@ if ($autoRestart) {
 } else {
     Start-Miner -BinaryPath $binaryPath -DaemonUrl $effectiveDaemon -WalletAddress $effectiveWallet -ThreadCount $effectiveThreads -FlagMap $flagMap -ExtraArgs $cmdArgs
 }
+$sw.Stop()
+# Remember fast startup failures so a miner that can't run on this host is
+# hidden from the list on future runs (--miner=<id> still force-runs it).
+Mark-MinerLaunchOutcome -BinDir $outputDir -MinerId $miner.id -ExitCode $LASTEXITCODE -ElapsedSec [int]$sw.Elapsed.TotalSeconds

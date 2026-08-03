@@ -36,8 +36,9 @@ function Start-Miner {
     # A miner that fails to start used to return to the prompt with zero
     # feedback (missing DLLs, corrupt binary, wrong flags). Always report how
     # the launch ended so a silent instant exit is never a black box. Ctrl+C
-    # (130 / 3221225786 = STATUS_CONTROL_C_EXIT) is a normal stop, not a crash.
-    if ($LASTEXITCODE -in @(130, 3221225786)) {
+    # (130 / 0xC000013A = STATUS_CONTROL_C_EXIT; PowerShell reports the signed
+    # form -1073741510 on Windows) is a normal stop, not a crash.
+    if ($LASTEXITCODE -in @(130, 3221225786, -1073741510)) {
         Write-Host "[*] Miner stopped (interrupted)" -ForegroundColor DarkGray
     } elseif ($LASTEXITCODE -ne 0) {
         $code = $LASTEXITCODE

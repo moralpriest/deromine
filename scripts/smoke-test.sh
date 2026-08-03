@@ -209,6 +209,29 @@ else
 fi
 rm -rf "$tmpvulkan"
 
+# 5g. Launch-failure memory: a miner that fails its startup gate twice in a
+# row is hidden from the list until a launch actually succeeds. Extracts the
+# REAL helpers from mine.sh.
+echo ""
+echo "5g. Launch-failure memory:"
+tmpmem=$(mktemp -d)
+mkdir -p "$tmpmem/go-gpu"
+eval "$(sed -n '/^mark_miner_launch_outcome()/,/^}/p' mine.sh)"
+eval "$(sed -n '/^miner_fails_on_host()/,/^}/p' mine.sh)"
+if miner_fails_on_host "$tmpmem" go-gpu; then fail "no failures recorded -> listed"; else pass "no failures recorded -> listed"; fi
+mark_miner_launch_outcome "$tmpmem" go-gpu 1 2
+if miner_fails_on_host "$tmpmem" go-gpu; then fail "one fast failure -> still listed"; else pass "one fast failure -> still listed"; fi
+mark_miner_launch_outcome "$tmpmem" go-gpu 1 2
+if miner_fails_on_host "$tmpmem" go-gpu; then pass "two fast failures -> hidden"; else fail "two fast failures -> hidden"; fi
+mark_miner_launch_outcome "$tmpmem" go-gpu 0 30
+if miner_fails_on_host "$tmpmem" go-gpu; then fail "successful run resets -> listed again"; else pass "successful run resets -> listed again"; fi
+mark_miner_launch_outcome "$tmpmem" go-gpu 130 3
+if miner_fails_on_host "$tmpmem" go-gpu; then fail "Ctrl+C does not count as failure"; else pass "Ctrl+C does not count as failure"; fi
+mark_miner_launch_outcome "$tmpmem" go-gpu 1 60
+if miner_fails_on_host "$tmpmem" go-gpu; then fail "slow exit does not count as startup failure"; else pass "slow exit does not count as startup failure"; fi
+if grep -q 'miner_fails_on_host' mine.sh; then pass "mine.sh wires launch-failure hiding"; else fail "mine.sh wires launch-failure hiding"; fi
+rm -rf "$tmpmem"
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

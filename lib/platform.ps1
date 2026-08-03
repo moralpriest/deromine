@@ -53,8 +53,18 @@ function Test-CommandAvailable {
 function Test-HasNvidiaGpu {
     try {
         $null = & nvidia-smi -L 2>$null
-        return $LASTEXITCODE -eq 0
-    } catch { return $false }
+        if ($LASTEXITCODE -eq 0) { return $true }
+    } catch {}
+    # nvidia-smi may be missing even with a driver installed (unusual). Fall
+    # back to enumerating the actual adapters so NVIDIA miners (cuda, astronv)
+    # are shown only when an NVIDIA GPU is really present on this host.
+    try {
+        $adapters = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue
+        foreach ($a in $adapters) {
+            if ([string]$a.Name -match 'NVIDIA|GeForce|Quadro|RTX|Tesla|NVS') { return $true }
+        }
+    } catch {}
+    return $false
 }
 
 # A Vulkan-capable GPU driver is present if any ICD JSON is registered under

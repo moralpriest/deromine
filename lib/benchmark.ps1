@@ -1,10 +1,12 @@
 function Get-SupportedMiners {
-    param([object]$Catalog, [object]$Platform)
+    param([object]$Catalog, [object]$Platform, [string]$BinDir = '')
     $rows = @()
     if (-not $Catalog -or -not $Catalog.miners) { return $rows }
     foreach ($m in $Catalog.miners) {
         if (-not (Get-MinerAsset $m $Platform.os $Platform.arch)) { continue }
         if (-not (Test-MinerHardwareSupported $m)) { continue }
+        # Hide miners that failed their startup gate repeatedly on this host.
+        if ($BinDir -and (Test-MinerFailsOnHost -BinDir $BinDir -MinerId $m.id)) { continue }
         $rows += $m
     }
     return $rows
@@ -214,7 +216,7 @@ function Start-MinerBenchmark {
         try { $prev = (Get-Content $benchCache -Raw | ConvertFrom-Json) -as [hashtable] } catch { $prev = @{} }
         if (-not $prev) { $prev = @{} }
     }
-    $supported = @(Get-SupportedMiners -Catalog $Catalog -Platform $Platform)
+    $supported = @(Get-SupportedMiners -Catalog $Catalog -Platform $Platform -BinDir $BinDir)
     if ($supported.Count -eq 0) {
         Write-Host "[x] No miners available to benchmark on this host" -ForegroundColor Red
         exit 1

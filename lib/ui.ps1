@@ -109,6 +109,9 @@ function Write-MinerTable {
         $asset = Get-MinerAsset $m $Platform.os $Platform.arch
         if (-not $asset) { continue }
         if (-not (Test-MinerHardwareSupported $m)) { continue }
+        # Hide miners that failed their startup gate repeatedly on this host
+        # (--miner=<id> still force-runs them).
+        if ($BinDir -and (Test-MinerFailsOnHost -BinDir $BinDir -MinerId $m.id)) { continue }
         $rows += $m
     }
 

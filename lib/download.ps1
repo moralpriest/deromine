@@ -184,6 +184,53 @@ function Move-LiftedFiles {
     Remove-Item $SourceDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# ── Launch-failure memory ──
+# A miner that can't run on this host (missing DLLs, broken GPU driver, broken
+# arm64 build) used to be listed forever and fail on every attempt. deromine
+# now remembers consecutive fast nonzero exits in a per-miner `bin/<id>/.fails`
+# file and hides such miners from the list until a launch actually succeeds.
+# `--miner=<id>` still force-runs a hidden miner.
+
+# Thresholds: an exit within 10s is a startup failure (a working miner runs
+# for hours); 2 consecutive failures hides the miner.
+$script:FastFailSecs  = 10
+$script:FailsToHide    = 2
+
+function Get-MinerFailsPath {
+    param([string]$BinDir, [string]$MinerId)
+    return (Join-Path (Join-Path $BinDir $MinerId) '.fails')
+}
+
+# Record the outcome of a miner launch. Successful runs, slow exits, and
+# Ctrl+C clears the memory; fast nonzero exits increment it.
+function Mark-MinerLaunchOutcome {
+    param([string]$BinDir, [string]$MinerId, [int]$ExitCode, [int]$ElapsedSec)
+    $minerDir = Join-Path $BinDir $MinerId
+    if (-not (Test-Path $minerDir)) { return }
+    $failsPath = Get-MinerFailsPath $BinDir $MinerId
+    # Ctrl+C surfaces as 130 or the NTSTATUS 0xC000013A (3221225786 unsigned /
+    # -1073741510 signed, which is what PowerShell reports on Windows).
+    if ($ExitCode -eq 0 -or $ElapsedSec -ge $script:FastFailSecs -or $ExitCode -in @(130, 3221225786, -1073741510)) {
+        Remove-Item $failsPath -Force -ErrorAction SilentlyContinue
+        return
+    }
+    $count = 0
+    if (Test-Path $failsPath) {
+        $count = [int]((Get-Content -LiteralPath $failsPath -Raw -ErrorAction SilentlyContinue) -as [int])
+    }
+    $count++
+    if ($count -gt 9) { $count = 9 }
+    try { Set-Content -LiteralPath $failsPath -Value "$count" -NoNewline -ErrorAction Stop } catch {}
+}
+
+function Test-MinerFailsOnHost {
+    param([string]$BinDir, [string]$MinerId)
+    $failsPath = Get-MinerFailsPath $BinDir $MinerId
+    if (-not (Test-Path $failsPath)) { return $false }
+    $count = [int]((Get-Content -LiteralPath $failsPath -Raw -ErrorAction SilentlyContinue) -as [int])
+    return $count -ge $script:FailsToHide
+}
+
 # A miner binary must be a complete, platform-valid executable. This catches
 # truncated/interrupted extractions that used to be cached forever — a corrupt
 # binary can still run far enough to print its usage screen instead of mining.

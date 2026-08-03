@@ -280,6 +280,37 @@ lift_binary() {
     rm -rf "$lift_dir"
 }
 
+# ── Launch-failure memory ──
+# A miner that can't run on this host (missing DLLs, broken GPU driver, broken
+# arm64 build) used to be listed forever and fail on every attempt. deromine
+# remembers consecutive fast nonzero exits in a per-miner bin/<id>/.fails file
+# and hides such miners from the list until a launch actually succeeds.
+# --miner=<id> still force-runs a hidden miner. A fast exit = within 10s;
+# 2 consecutive failures hides the miner.
+mark_miner_launch_outcome() {
+    local bindir="$1" mid="$2" rc="$3" elapsed="$4" f count
+    [ -d "$bindir/$mid" ] || return 0
+    f="$bindir/$mid/.fails"
+    # Successful runs, slow exits, and Ctrl+C (130) clear the memory.
+    if [ "$rc" -eq 0 ] || [ "$elapsed" -ge 10 ] || [ "$rc" -eq 130 ]; then
+        rm -f "$f"
+        return 0
+    fi
+    count=0
+    [ -f "$f" ] && count=$(cat "$f" 2>/dev/null || echo 0)
+    count=$((count + 1))
+    [ "$count" -gt 9 ] && count=9
+    printf '%s' "$count" > "$f"
+}
+
+miner_fails_on_host() {
+    local bindir="$1" mid="$2" f count
+    f="$bindir/$mid/.fails"
+    [ -f "$f" ] || return 1
+    count=$(cat "$f" 2>/dev/null || echo 0)
+    [ "$count" -ge 2 ]
+}
+
 # Download, extract, lift (rename to the canonical cache name), verify, and
 # record the release tag next to the binary so later runs can detect a stale
 # cache. Relies on the resolve_* globals: MINER_DIR, BINARY_PATH, ARCHIVE_NAME,
@@ -581,6 +612,9 @@ for m in "${MINER_JSONS[@]}"; do
     pattern=$(get_asset_pattern "$m")
     [ -z "$pattern" ] && continue
     if ! miner_hardware_ok "$m"; then continue; fi
+    # Hide miners that failed their startup gate repeatedly on this host
+    # (--miner=<id> still force-runs them).
+    if miner_fails_on_host "$BIN_DIR" "$(echo "$m" | jq -r '.id')"; then continue; fi
     SUPPORTED+=("$m")
 done
 
@@ -1061,12 +1095,14 @@ if $AUTO_RESTART; then
     LOGFILE="$LOGDIR/$MINER_ID-$(date +%Y%m%d-%H%M%S).log"
 fi
 while true; do
+    launch_start=$(date +%s)
     if [ -n "$LOGFILE" ]; then
         echo "=== $(date +%H:%M:%S) run $((RESTART_COUNT + 1))/$MAX_RESTART ($MINER_ID) ===" >> "$LOGFILE" 2>/dev/null || true
         # Report how the launch ended (a silent instant exit - missing DLLs,
         # corrupt binary - used to be a black box). SIGINT (130) is a normal
         # stop, not a crash.
         if "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1; then
+            rc=0
             echo "[*] Miner stopped (exit code 0)" >&2
         else
             rc=$?
@@ -1085,6 +1121,7 @@ while true; do
     else
         # No log file: run in the foreground so output stays on the terminal.
         if "$BINARY_PATH" "${CMD_ARGS[@]}"; then
+            rc=0
             echo "[*] Miner stopped (exit code 0)" >&2
         else
             rc=$?
@@ -1097,9 +1134,12 @@ while true; do
                     echo "  Fix: rm -rf \"$MINER_DIR\", then run deromine again (it re-downloads the DLLs)." >&2
                 fi
             fi
-            exit "$rc"
         fi
     fi
+    launch_end=$(date +%s)
+    mark_miner_launch_outcome "$BIN_DIR" "$MINER_ID" "$rc" "$((launch_end - launch_start))"
+    # Foreground launches still propagate a nonzero exit to the caller.
+    if [ -z "$LOGFILE" ] && [ "$rc" -ne 0 ]; then exit "$rc"; fi
 
     RESTART_COUNT=$((RESTART_COUNT + 1))
     if $AUTO_RESTART && [ $RESTART_COUNT -lt $MAX_RESTART ]; then
