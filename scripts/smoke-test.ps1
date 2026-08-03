@@ -298,6 +298,18 @@ try {
     Assert-True '  missing binary on linux -> generic retry hint' ($hintLin -match 'incomplete or corrupt')
     $hintCorrupt = Get-IntegrityFailureHint -Path $bad -Os 'windows' -MinerDir $tmpCache
     Assert-True '  present-but-corrupt binary on windows -> reports observed state' ($hintCorrupt -match 'Observed:' -and $hintCorrupt -match '400000')
+    # A full-size file that cannot be opened is Windows Security ACTIVELY
+    # holding it (the deroluna case: correct size, locked). Simulated with a
+    # FileShare.None handle, which .NET honors on every platform.
+    $lockedFile = Join-Path $tmpCache 'locked.bin'
+    [System.IO.File]::WriteAllBytes($lockedFile, $goodBuf)
+    $fsLock = [System.IO.File]::Open($lockedFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    try {
+        $hintLocked = Get-IntegrityFailureHint -Path $lockedFile -Os 'windows' -MinerDir $tmpCache
+        Assert-True '  locked full-size binary -> actively-held message' ($hintLocked -match 'is LOCKED' -and $hintLocked -match 'Re-running alone will NOT fix')
+    } finally {
+        $fsLock.Dispose()
+    }
     $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
     Assert-True '  launch path prints the integrity hint' ($mineText -match 'Get-IntegrityFailureHint')
     $dlText = Get-Content (Join-Path $libDir 'download.ps1') -Raw

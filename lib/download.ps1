@@ -335,9 +335,14 @@ Then run deromine again.
 "@
     }
     $state = 'file is missing'
+    $locked = $false
+    $sizeNum = -1
     if (Test-Path -LiteralPath $Path) {
         $sizeText = 'size unknown'
-        try { $sizeText = "$((Get-Item -LiteralPath $Path).Length) bytes" } catch {}
+        try {
+            $sizeNum = [int](Get-Item -LiteralPath $Path).Length
+            $sizeText = "$sizeNum bytes"
+        } catch {}
         $magic = 'unreadable'
         try {
             $fs = [System.IO.File]::OpenRead($Path)
@@ -349,8 +354,32 @@ Then run deromine again.
                     $magic = 'shorter than 4 bytes'
                 }
             } finally { $fs.Dispose() }
-        } catch { $magic = 'locked or unreadable (AV may be scanning it)' }
+        } catch {
+            $magic = 'locked or unreadable'
+            $locked = $true
+        }
         $state = "file exists, $sizeText, first 4 bytes $magic"
+    }
+    if ($locked) {
+        # The file cannot be opened for reading — Windows Security (or another
+        # AV/process) is holding it. Only claim "correct full size" when the
+        # size was actually verified as plausible; otherwise stick to the
+        # Observed line, which already shows the truth.
+        $sizeClause = if ($sizeNum -ge 200000) { ' has its correct full size but' } else { '' }
+        return @"
+Observed: $state - an AV/process is holding the file open
+
+The file$sizeClause is LOCKED - Windows Security (or another AV) is actively
+holding it (scan or quarantine in progress) and will keep locking every fresh
+download until told not to. Re-running alone will NOT fix this.
+
+Fix (do this FIRST, then re-run deromine):
+  1. Windows Security > Virus & threat protection > Protection history
+     > find the deroluna detection > Actions > Allow / Restore
+  2. Windows Security > Virus & threat protection > Manage settings
+     > Exclusions > Add a folder > '$MinerDir'
+  3. Run deromine again - it re-downloads the miner.
+"@
     }
     return @"
 Observed: $state
