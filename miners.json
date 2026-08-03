@@ -1,6 +1,10 @@
 {
   "daemons": [
     {
+      "name": "derofoundation",
+      "url": "http://node.derofoundation.org:10100"
+    },
+    {
       "name": "rabidmining",
       "url": "http://dero.rabidmining.com:10100"
     },

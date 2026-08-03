@@ -10,7 +10,7 @@ foreach ($f in Get-ChildItem $libDir -Filter '*.ps1' | Sort-Object Name) {
 }
 
 # ── Defaults ──
-$daemonUrl       = 'http://dero.rabidmining.com:10100'
+$daemonUrl       = 'http://node.derofoundation.org:10100'
 $daemonFlag      = $false
 $walletAddress   = ''
 $minerType       = $null

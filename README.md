@@ -182,7 +182,7 @@ Select a miner from the menu, configure wallet/daemon/threads, and start mining.
 | `-h` / `--help` / `/?` | Show usage and exit |
 
 ```powershell
-pwsh ./mine.ps1 --miner=c --wallet=dero1... --daemon-url=http://dero.rabidmining.com:10100 --threads=4
+pwsh ./mine.ps1 --miner=c --wallet=dero1... --daemon-url=http://node.derofoundation.org:10100 --threads=4
 pwsh ./mine.ps1 --miner=list
 pwsh ./mine.ps1 --dry-run
 pwsh ./mine.ps1 --miner=tnn --dev-fee=1
@@ -282,7 +282,7 @@ instead of mining even with correct arguments). On Termux, use the Dirtybird
 ```json
 {
   "wallet_address": "dero1...",
-  "daemon_url": "http://dero.rabidmining.com:10100",
+  "daemon_url": "http://node.derofoundation.org:10100",
   "thread_count": 4
 }
 ```

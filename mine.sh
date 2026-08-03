@@ -8,7 +8,7 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 
 # ── Parse arguments ──
-DAEMON_URL="http://dero.rabidmining.com:10100"
+DAEMON_URL="http://node.derofoundation.org:10100"
 WALLET_ADDR=""
 MINER_ID=""
 THREAD_COUNT=0
