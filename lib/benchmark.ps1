@@ -104,7 +104,9 @@ function Get-MinerBinaryPath {
             $found = Get-ChildItem -Path $minerDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $archiveBinary } | Select-Object -First 1
             if ($found) {
                 if ($found.DirectoryName -ne $minerDir) {
-                    Copy-Item $found.FullName $binaryPath -Force
+                    # Copy the whole nested dir — Windows releases ship DLLs
+                    # next to the exe, and a lone exe cannot start without them.
+                    Move-LiftedFiles -SourceDir $found.DirectoryName -DestDir $minerDir -ArchiveBinary $archiveBinary -CanonicalBinary $binaryName
                 }
             }
         }

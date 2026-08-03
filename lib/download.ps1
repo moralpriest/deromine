@@ -165,6 +165,25 @@ function Invoke-Extract {
     }
 }
 
+# Move a nested extraction dir's contents up to the miner cache dir so the
+# canonical binary keeps its dependencies (Windows releases ship DLLs next to
+# the exe, e.g. libstdc++-6.dll — a lone exe cannot start without them). The
+# exe is renamed to the canonical cache name; the nested dir is removed.
+function Move-LiftedFiles {
+    param(
+        [string]$SourceDir,
+        [string]$DestDir,
+        [string]$ArchiveBinary,
+        [string]$CanonicalBinary
+    )
+    foreach ($file in (Get-ChildItem -Path $SourceDir -File -ErrorAction SilentlyContinue)) {
+        $dest = Join-Path $DestDir $file.Name
+        if ($file.Name -eq $ArchiveBinary) { $dest = Join-Path $DestDir $CanonicalBinary }
+        Copy-Item $file.FullName $dest -Force
+    }
+    Remove-Item $SourceDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # A miner binary must be a complete, platform-valid executable. This catches
 # truncated/interrupted extractions that used to be cached forever — a corrupt
 # binary can still run far enough to print its usage screen instead of mining.

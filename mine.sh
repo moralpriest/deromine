@@ -259,6 +259,27 @@ cached_binary_usable() {
     binary_integrity_ok "$path"
 }
 
+# Copy a nested extraction dir's contents up to $MINER_DIR so the canonical
+# binary keeps its dependencies (Windows releases ship DLLs next to the exe,
+# e.g. libstdc++-6.dll - a lone exe cannot start without them). Uses the
+# globals MINER_DIR and BINARY_PATH; removes the nested dir afterwards.
+lift_binary() {
+    local found="$1" lift_dir base f
+    [ -n "$found" ] || return 1
+    lift_dir="$(dirname "$found")"
+    [ "$lift_dir" != "$MINER_DIR" ] || return 0
+    echo "Lifting binary and dependencies..." >&2
+    cp "$found" "$BINARY_PATH"
+    for f in "$lift_dir"/*; do
+        [ -f "$f" ] || continue
+        base="$(basename "$f")"
+        [ "$base" = "$(basename "$found")" ] && continue
+        # Fresh extraction wins over any same-named stale file in the cache.
+        cp -f "$f" "$MINER_DIR/"
+    done
+    rm -rf "$lift_dir"
+}
+
 # Download, extract, lift (rename to the canonical cache name), verify, and
 # record the release tag next to the binary so later runs can detect a stale
 # cache. Relies on the resolve_* globals: MINER_DIR, BINARY_PATH, ARCHIVE_NAME,
@@ -276,9 +297,8 @@ fetch_binary() {
     rm -f "$archive_path"
     # Lift binary if nested (rename to the canonical cache name)
     found=$(find "$MINER_DIR" -type f -name "$ARCHIVE_BINARY" 2>/dev/null | head -1)
-    if [ -n "$found" ] && [ "$(dirname "$found")" != "$MINER_DIR" ]; then
-        echo "Lifting binary..." >&2
-        cp "$found" "$BINARY_PATH"
+    if [ -n "$found" ]; then
+        lift_binary "$found"
     fi
     if [ ! -f "$BINARY_PATH" ]; then
         echo "${C_ERR}[x] Binary '$(basename "$BINARY_PATH")' not found after extraction${C_RESET}" >&2

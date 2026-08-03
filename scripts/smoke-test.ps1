@@ -260,6 +260,32 @@ try {
     Remove-Item $tmpCache -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 6e. Lifted binaries keep their dependencies. Windows releases ship DLLs
+# next to the exe (e.g. libstdc++-6.dll); the lift must copy the whole nested
+# dir, not just the binary. Tests the REAL Move-LiftedFiles from download.ps1.
+Write-Host ''
+Write-Host '6e. Lift dependencies:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'download.ps1')
+    $tmpLift = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-lift-' + [guid]::NewGuid().ToString('N'))
+    $destDir = Join-Path $tmpLift 'cache'
+    $nested = Join-Path $destDir 'nested'
+    New-Item -ItemType Directory -Path $nested -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $nested 'dirtybird-miner-cpu.exe') -Value 'MZfakeexe' -NoNewline
+    Set-Content -LiteralPath (Join-Path $nested 'libstdc++-6.dll') -Value 'DLLDATA' -NoNewline
+    Set-Content -LiteralPath (Join-Path $nested 'config.json') -Value '{}' -NoNewline
+    Move-LiftedFiles -SourceDir $nested -DestDir $destDir -ArchiveBinary 'dirtybird-miner-cpu.exe' -CanonicalBinary 'dirtybird-c-miner.exe'
+    Assert-True '  exe lifted to canonical name' (Test-Path (Join-Path $destDir 'dirtybird-c-miner.exe'))
+    Assert-True '  DLL lifted next to exe' (Test-Path (Join-Path $destDir 'libstdc++-6.dll'))
+    Assert-True '  config.json lifted too' (Test-Path (Join-Path $destDir 'config.json'))
+    Assert-True '  nested dir removed after lift' (-not (Test-Path $nested))
+} catch {
+    Assert-True '  lift dependencies works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    Remove-Item $tmpLift -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
 Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow

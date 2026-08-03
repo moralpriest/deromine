@@ -376,13 +376,15 @@ if ($needsDownload) {
 
 # ── Resolve binary path (handle nested dirs) ──
 if (-not (Test-Path $binaryPath)) {
-    $found = Get-ChildItem -Path $minerDir -Recurse -File | Where-Object { $_.Name -eq $archiveBinary }
+    $found = Get-ChildItem -Path $minerDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $archiveBinary } | Select-Object -First 1
     if ($found) {
         $binaryPath = $found.FullName
         $binDir = Split-Path -Parent $binaryPath
         if ($binDir -ne $minerDir) {
             Write-Host "Lifting binary from $binDir to $minerDir" -ForegroundColor Yellow
-            Copy-Item $found.FullName (Join-Path $minerDir $binaryName) -Force
+            # Copy the whole nested dir — Windows releases ship DLLs next to
+            # the exe, and a lone exe cannot start without them.
+            Move-LiftedFiles -SourceDir $binDir -DestDir $minerDir -ArchiveBinary $archiveBinary -CanonicalBinary $binaryName
             $binaryPath = Join-Path $minerDir $binaryName
         }
     }

@@ -163,6 +163,30 @@ printf 'v0.3.0\n' > "$tmpcache/corrupt.bin.tag"
 if cached_binary_usable "$tmpcache/corrupt.bin" "v0.3.0"; then fail "corrupt binary forces re-download"; else pass "corrupt binary forces re-download"; fi
 rm -rf "$tmpcache"
 
+# 5e. Lifted binaries keep their dependencies. Windows releases ship DLLs
+# next to the exe (e.g. libstdc++-6.dll); the lift must copy the whole nested
+# dir, not just the binary. Extracts the REAL lift_binary from mine.sh.
+echo ""
+echo "5e. Lift dependencies:"
+tmplift=$(mktemp -d)
+mkdir -p "$tmplift/cache/nested"
+printf 'MZfakeexe' > "$tmplift/cache/nested/dirtybird-miner-cpu.exe"
+printf 'DLLDATA'   > "$tmplift/cache/nested/libstdc++-6.dll"
+printf '{}'        > "$tmplift/cache/nested/config.json"
+eval "$(sed -n '/^lift_binary()/,/^}/p' mine.sh)"
+MINER_DIR="$tmplift/cache"
+BINARY_PATH="$MINER_DIR/dirtybird-c-miner.exe"
+if lift_binary "$tmplift/cache/nested/dirtybird-miner-cpu.exe"; then
+    pass "lift_binary ran"
+else
+    fail "lift_binary ran"
+fi
+if [ -f "$BINARY_PATH" ]; then pass "exe lifted to canonical name"; else fail "exe lifted to canonical name"; fi
+if [ -f "$MINER_DIR/libstdc++-6.dll" ]; then pass "DLL lifted next to exe"; else fail "DLL lifted next to exe"; fi
+if [ -f "$MINER_DIR/config.json" ]; then pass "config.json lifted too"; else fail "config.json lifted too"; fi
+if [ ! -d "$tmplift/cache/nested" ]; then pass "nested dir removed after lift"; else fail "nested dir removed after lift"; fi
+rm -rf "$tmplift"
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

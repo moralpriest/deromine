@@ -321,7 +321,9 @@ change, without keeping manual notes. Results are compared by miner id.
 4. **Asset matching** filters `assets[]` by `os`, `arch`, and `pattern` glob.
 5. **Download** queries the GitHub/GitLab latest-release API at runtime, matches
    the asset by pattern, extracts it, and places the binary in `bin/<miner-id>/`.
-   Nested binaries are lifted to the top-level folder. The cache is
+   Nested binaries are lifted to the top-level folder together with their
+   dependencies (Windows releases ship DLLs next to the exe, e.g.
+   `libstdc++-6.dll`). The cache is
    **version-aware**: the release tag is recorded next to each binary
    (`<binary>.tag`), and each binary is integrity-checked (valid
    ELF/Mach-O/PE magic, non-trivial size) before use. A stale or corrupt cached
@@ -389,3 +391,10 @@ Both suites fail with exit code 1 on any regression.
   automatically. To force a fresh download manually, remove the miner's cache
   and re-run: `rm -rf bin/<miner-id>` (e.g. `rm -rf bin/zig`), then
   `deromine --miner=zig`.
+- **Miner exits instantly on Windows with no output** (right after the
+  `[*] Command:` line, prompt returns immediately): Windows releases ship
+  runtime DLLs next to the exe (e.g. dirtybird-c-miner ships `libstdc++-6.dll`,
+  `libgcc_s_seh-1.dll`, `libwinpthread-1.dll`, `libcrypto-3-x64.dll`,
+  `libssl-3-x64.dll`). If the exe was lifted without its DLLs it cannot start.
+  deromine now lifts the whole extracted folder so dependencies stay with the
+  binary — re-run the installer to update, then `deromine --miner=c`.
