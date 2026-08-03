@@ -57,6 +57,24 @@ function Test-HasNvidiaGpu {
     } catch { return $false }
 }
 
+# A Vulkan-capable GPU driver is present if any ICD JSON is registered under
+# the Khronos Vulkan runtime key. Vulkan does NOT require an NVIDIA card -
+# Intel/AMD integrated GPUs with a working Vulkan driver qualify - but a
+# machine with no registered ICD (older iGPU drivers, WARP-only renderers,
+# VMs) cannot run Vulkan miners like go-gpu and must not be listed.
+function Test-WindowsVulkanDriver {
+    param([string]$RegKey = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers')
+    try {
+        $drv = Get-ItemProperty -Path $RegKey -ErrorAction SilentlyContinue
+        if ($drv) {
+            foreach ($prop in $drv.PSObject.Properties) {
+                if ($prop.Name -like '*.json') { return $true }
+            }
+        }
+    } catch {}
+    return $false
+}
+
 function Test-HasVulkanGpu {
     $platform = Get-PwshPlatform
     switch ($platform.os) {
@@ -71,7 +89,15 @@ function Test-HasVulkanGpu {
             return $false
         }
         'macos'   { return $true }
-        'windows' { return $true }
+        'windows' {
+            if (Get-Command vulkaninfo -ErrorAction SilentlyContinue) {
+                try {
+                    $null = & vulkaninfo --summary 2>$null
+                    if ($LASTEXITCODE -eq 0) { return $true }
+                } catch {}
+            }
+            return (Test-WindowsVulkanDriver)
+        }
         default   { return $false }
     }
 }

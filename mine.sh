@@ -327,7 +327,16 @@ has_vulkan_gpu() {
     if [ "$OS" = "linux" ] && [ -d /dev/dri ]; then
         ls /dev/dri/card* >/dev/null 2>&1 && return 0
     fi
-    if [ "$OS" = "macos" ] || [ "$OS" = "windows" ]; then return 0; fi
+    if [ "$OS" = "windows" ]; then
+        # Vulkan does NOT require NVIDIA (Intel/AMD iGPUs qualify) but a Vulkan
+        # ICD must be registered - probe instead of assuming every Windows box
+        # has one (older iGPU drivers, WARP-only renderers, VMs do not).
+        if command -v reg >/dev/null 2>&1 && reg query "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" >/dev/null 2>&1; then
+            return 0
+        fi
+        return 1
+    fi
+    if [ "$OS" = "macos" ]; then return 0; fi
     return 1
 }
 

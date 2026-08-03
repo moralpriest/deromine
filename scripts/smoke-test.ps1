@@ -153,6 +153,34 @@ try {
     Remove-Item $marker -Force -ErrorAction SilentlyContinue
 }
 
+# 4c. Windows Vulkan detection probes for a registered ICD instead of
+# assuming every Windows box has Vulkan (go-gpu must not be listed on
+# WARP-only or no-driver machines). Tests the REAL Test-WindowsVulkanDriver
+# with a fake registry key.
+Write-Host ''
+Write-Host '4c. Windows Vulkan probe:' -ForegroundColor Yellow
+$testKey = 'HKCU:\SOFTWARE\deromine-vulkan-test'
+try {
+    . (Join-Path $libDir 'platform.ps1')
+    if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
+        Remove-Item $testKey -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -Path $testKey -Force | Out-Null
+        Assert-True '  no ICD registered -> no Vulkan' (-not (Test-WindowsVulkanDriver -RegKey $testKey))
+        New-ItemProperty -Path $testKey -Name 'C:\fake\igvk64.json' -PropertyType DWord -Value 1 -Force | Out-Null
+        Assert-True '  ICD json registered -> Vulkan' (Test-WindowsVulkanDriver -RegKey $testKey)
+    } else {
+        # The registry provider is Windows-only; on Unix assert graceful
+        # degradation (no probed Vulkan -> $false). The bash suite covers the
+        # ICD present/absent logic functionally.
+        Assert-True '  no registry on unix -> no Vulkan' (-not (Test-WindowsVulkanDriver))
+    }
+} catch {
+    Assert-True '  Windows Vulkan probe works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    Remove-Item $testKey -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 5. Binary name resolution
 Write-Host ''
 Write-Host '5. Binary name resolution:' -ForegroundColor Yellow

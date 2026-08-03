@@ -187,6 +187,28 @@ if [ -f "$MINER_DIR/config.json" ]; then pass "config.json lifted too"; else fai
 if [ ! -d "$tmplift/cache/nested" ]; then pass "nested dir removed after lift"; else fail "nested dir removed after lift"; fi
 rm -rf "$tmplift"
 
+# 5f. Windows Vulkan detection probes for a registered ICD instead of
+# assuming every Windows box has Vulkan (go-gpu must not be listed on
+# WARP-only or no-driver machines). Extracts the REAL has_vulkan_gpu.
+echo ""
+echo "5f. Windows Vulkan probe:"
+tmpvulkan=$(mktemp -d)
+mkdir -p "$tmpvulkan/empty" "$tmpvulkan/bin"
+printf '#!/bin/sh\nexit 0\n' > "$tmpvulkan/bin/reg"
+chmod +x "$tmpvulkan/bin/reg"
+eval "$(sed -n '/^has_vulkan_gpu()/,/^}/p' mine.sh)"
+if PATH="$tmpvulkan/empty" OS=windows has_vulkan_gpu; then
+    fail "windows without Vulkan ICD is hidden"
+else
+    pass "windows without Vulkan ICD is hidden"
+fi
+if PATH="$tmpvulkan/bin" OS=windows has_vulkan_gpu; then
+    pass "windows with Vulkan ICD is listed"
+else
+    fail "windows with Vulkan ICD is listed"
+fi
+rm -rf "$tmpvulkan"
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

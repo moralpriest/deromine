@@ -368,7 +368,14 @@ Both suites fail with exit code 1 on any regression.
   If it fails, run `chmod +x bin/c/dirtybird-c-miner` manually.
 - **GPU miner missing from list**: GPU miners are filtered by hardware detection
   (`nvidia-smi` for NVIDIA, `vulkaninfo` for Vulkan). Install the vendor runtime
-  and try again.
+  and try again. Vulkan miners (go-gpu) do **not** require an NVIDIA card — any
+  Intel/AMD integrated GPU with a working Vulkan driver qualifies. On Windows,
+  deromine checks for a registered Vulkan ICD under
+  `HKLM\SOFTWARE\Khronos\Vulkan\Drivers`, so go-gpu is hidden on machines with
+  no Vulkan driver (WARP-only renderers, older iGPU drivers, VMs). If go-gpu is
+  listed but the miner's own startup self-test refuses to mine on your
+  GPU/driver, that is the miner refusing an unusable device (it exits 1 with an
+  explanation) — use a CPU miner instead.
 - **Astronv fails to start**: it needs NVIDIA drivers (`libnvidia-ml.so.1`) and is
   Linux amd64 only.
 - **derohe is missing from the list on Termux/Android**: derohe's arm64 release
