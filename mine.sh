@@ -345,7 +345,7 @@ miner_listable_on_host() {
 # cache. Relies on the resolve_* globals: MINER_DIR, BINARY_PATH, ARCHIVE_NAME,
 # ARCHIVE_BINARY, DOWNLOAD_URL, TAG.
 fetch_binary() {
-    local archive_path="$MINER_DIR/$ARCHIVE_NAME" found=""
+    local archive_path="$MINER_DIR/$ARCHIVE_NAME" found="" tries ok
     echo "Downloading $ARCHIVE_NAME..." >&2
     curl -fL "$DOWNLOAD_URL" -o "$archive_path" || { echo "${C_ERR}[x] Download failed${C_RESET}" >&2; return 1; }
     echo "Extracting..." >&2
@@ -366,12 +366,24 @@ fetch_binary() {
         return 1
     fi
     chmod +x "$BINARY_PATH" 2>/dev/null || true
-    if ! binary_integrity_ok "$BINARY_PATH"; then
+    # Freshly-extracted files can be briefly LOCKED by AV real-time scanning
+    # (Windows Defender) - retry a few times to ride out the scan before
+    # declaring the file corrupt.
+    tries=0; ok=1
+    while [ "$tries" -lt 3 ]; do
+        if binary_integrity_ok "$BINARY_PATH"; then ok=0; break; fi
+        tries=$((tries + 1))
+        if [ "$tries" -lt 3 ]; then sleep 1; fi
+    done
+    if [ "$ok" -ne 0 ]; then
         echo "${C_ERR}[x] Extracted binary '$BINARY_PATH' failed integrity check${C_RESET}" >&2
-        if [ "$OS" = "windows" ] && [ ! -f "$BINARY_PATH" ]; then
-            echo "${C_DIM}  Usually Windows Defender quarantining the miner (a false positive for${C_RESET}" >&2
-            echo "${C_DIM}  closed-source miners). Restore it in Windows Security > Protection${C_RESET}" >&2
-            echo "${C_DIM}  history, or add an exclusion for '$MINER_DIR', then re-run.${C_RESET}" >&2
+        if [ "$OS" = "windows" ]; then
+            echo "${C_DIM}  On Windows this is almost always Windows Defender interfering (a${C_RESET}" >&2
+            echo "${C_DIM}  false positive for closed-source miners): it may quarantine,${C_RESET}" >&2
+            echo "${C_DIM}  truncate, or briefly lock the file. Add an exclusion for${C_RESET}" >&2
+            echo "${C_DIM}  '$MINER_DIR' (Windows Security > Virus & threat protection >${C_RESET}" >&2
+            echo "${C_DIM}  Manage settings > Exclusions), then re-run. If it still fails,${C_RESET}" >&2
+            echo "${C_DIM}  the download is corrupt - remove '$MINER_DIR' and retry.${C_RESET}" >&2
         else
             echo "${C_DIM}  Incomplete/corrupt download. Remove '$MINER_DIR' and retry.${C_RESET}" >&2
         fi

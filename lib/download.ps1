@@ -269,7 +269,7 @@ function Test-MinerListable {
 # A miner binary must be a complete, platform-valid executable. This catches
 # truncated/interrupted extractions that used to be cached forever — a corrupt
 # binary can still run far enough to print its usage screen instead of mining.
-function Test-BinaryIntegrity {
+function Test-BinaryIntegrityOnce {
     param([string]$Path, [string]$Os)
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     try {
@@ -301,31 +301,74 @@ function Test-BinaryIntegrity {
     }
 }
 
+# AV real-time protection (Windows Defender) can briefly LOCK a freshly
+# extracted exe while it scans it, making the read fail even though the file
+# is fine. Retry a few times to ride out the scan; only give up if the file
+# still fails every attempt (adds at most ~600ms, and only on the failure
+# path).
+function Test-BinaryIntegrity {
+    param([string]$Path, [string]$Os, [int]$Retries = 3, [int]$RetryDelayMs = 500)
+    $attempt = 0
+    while ($attempt -lt $Retries) {
+        if (Test-BinaryIntegrityOnce -Path $Path -Os $Os) { return $true }
+        $attempt++
+        if ($attempt -lt $Retries) { Start-Sleep -Milliseconds $RetryDelayMs }
+    }
+    return $false
+}
+
 # A freshly-extracted binary that FAILED the integrity check needs an
-# actionable explanation, not a dead-end error. On Windows, a binary that is
-# MISSING (rather than merely corrupt) right after a successful extraction is
-# almost always Windows Defender quarantining it — closed-source miners are
-# frequently false-positived (unsigned, CPU-heavy hashing). Anything else is
-# an interrupted/corrupt download.
+# actionable explanation, not a dead-end error. On Windows the upstream
+# release is valid (verified per-release), so a damaged or missing file is
+# almost always Windows Defender (or another AV) interfering: quarantining
+# the exe (file missing), truncating it during extraction, or briefly locking
+# it while scanning. Report what was actually observed so the diagnosis is
+# data-driven, not a coin flip.
 function Get-IntegrityFailureHint {
     param([string]$Path, [string]$Os, [string]$MinerDir)
-    if ($Os -eq 'windows' -and -not (Test-Path -LiteralPath $Path)) {
+    if ($Os -ne 'windows') {
         return @"
-This is almost always Windows Defender quarantining the miner binary - a
-common false positive for closed-source miners (e.g. deroluna).
-Fix:
-  1. Windows Security > Virus & threat protection > Protection history
-     > find the detection > Actions > Restore the file
-  2. Stop it recurring: Windows Security > Virus & threat protection
-     > Manage settings > Exclusions > Add a folder > '$MinerDir'
-  3. Run deromine again - it re-downloads the miner.
-"@
-    }
-    return @"
 The download was incomplete or corrupt (e.g. an interrupted download).
 Remove the stale cache and retry:
   Remove-Item '$MinerDir' -Recurse -Force
 Then run deromine again.
+"@
+    }
+    $state = 'file is missing'
+    if (Test-Path -LiteralPath $Path) {
+        $sizeText = 'size unknown'
+        try { $sizeText = "$((Get-Item -LiteralPath $Path).Length) bytes" } catch {}
+        $magic = 'unreadable'
+        try {
+            $fs = [System.IO.File]::OpenRead($Path)
+            try {
+                $b = New-Object byte[] 4
+                if ($fs.Read($b, 0, 4) -eq 4) {
+                    $magic = '0x{0:X2}{1:X2}{2:X2}{3:X2}' -f $b[0], $b[1], $b[2], $b[3]
+                } else {
+                    $magic = 'shorter than 4 bytes'
+                }
+            } finally { $fs.Dispose() }
+        } catch { $magic = 'locked or unreadable (AV may be scanning it)' }
+        $state = "file exists, $sizeText, first 4 bytes $magic"
+    }
+    return @"
+Observed: $state
+
+Windows Defender (or another AV) frequently interferes with closed-source
+miners (e.g. deroluna) - the upstream release is valid, so a damaged or
+missing file here almost always means AV interference (quarantine, truncation
+during extraction, or a scan lock).
+
+Fix:
+  1. Windows Security > Virus & threat protection > Manage settings
+     > Exclusions > Add a folder > '$MinerDir'
+  2. Windows Security > Virus & threat protection > Protection history
+     > restore the deroluna detection if listed
+  3. Run deromine again - it re-downloads the miner.
+
+If it still fails with the exclusion in place, the download itself was
+corrupt: Remove-Item '$MinerDir' -Recurse -Force, then run deromine again.
 "@
 }
 

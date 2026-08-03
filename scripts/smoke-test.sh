@@ -263,15 +263,20 @@ rm -rf "$tmpmem"
 # The bash path must explain that instead of a dead-end integrity error.
 echo ""
 echo "5h. Defender quarantine hint:"
-if grep -q 'Windows Defender' mine.sh && grep -q 'Protection' mine.sh; then
-    pass "mine.sh explains Defender quarantine + how to fix"
+if grep -q 'Windows Defender' mine.sh && grep -q 'Exclusions' mine.sh; then
+    pass "mine.sh explains Defender interference + exclusion fix"
 else
-    fail "mine.sh explains Defender quarantine + how to fix"
+    fail "mine.sh explains Defender interference + exclusion fix"
 fi
-if grep -q '"$OS" = "windows"' mine.sh && grep -q '! -f "$BINARY_PATH"' mine.sh; then
-    pass "hint fires only for a missing binary on Windows"
+if grep -q '"$OS" = "windows"' mine.sh; then
+    pass "windows path has Defender-aware guidance"
 else
-    fail "hint fires only for a missing binary on Windows"
+    fail "windows path has Defender-aware guidance"
+fi
+if grep -q 'tries" -lt 3' mine.sh; then
+    pass "bash retries integrity check against transient AV locks"
+else
+    fail "bash retries integrity check against transient AV locks"
 fi
 
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).

@@ -428,12 +428,15 @@ Both suites fail with exit code 1 on any regression.
 - **Windows Defender blocks/quarantines a miner right after download**
   (e.g. deroluna reports `failed integrity check` immediately after
   `Extracting...`): Windows Defender frequently false-positives closed-source
-  miners (unsigned, CPU-heavy hashing) and deletes the freshly-extracted exe.
-  Restore it in **Windows Security → Virus & threat protection → Protection
-  history** (Actions → Restore), and add an exclusion so it doesn't recur:
-  **Virus & threat protection → Manage settings → Exclusions → Add a folder**
-  → `%USERPROFILE%\.local\share\deromine\bin`. Then run deromine again — it
-  re-downloads the miner.
+  miners (unsigned, CPU-heavy hashing). It can quarantine the freshly-extracted
+  exe (file missing), truncate it during extraction, or briefly lock it while
+  scanning — deromine retries the integrity check to ride out scan locks, and
+  the error message shows what was actually found on disk (size + magic bytes).
+  Fix: add an exclusion so it doesn't recur — **Windows Security → Virus &
+  threat protection → Manage settings → Exclusions → Add a folder** →
+  `%USERPROFILE%\.local\share\deromine\bin` — and restore the detection in
+  **Protection history** if listed. Then run deromine again — it re-downloads
+  the miner.
 - **Miner exits instantly on Windows with no output** (right after the
   `[*] Command:` line, prompt returns immediately): Windows releases ship
   runtime DLLs next to the exe (e.g. dirtybird-c-miner ships `libstdc++-6.dll`,

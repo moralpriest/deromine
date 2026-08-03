@@ -297,9 +297,11 @@ try {
     $hintLin = Get-IntegrityFailureHint -Path (Join-Path $tmpCache 'missing.bin') -Os 'linux' -MinerDir $tmpCache
     Assert-True '  missing binary on linux -> generic retry hint' ($hintLin -match 'incomplete or corrupt')
     $hintCorrupt = Get-IntegrityFailureHint -Path $bad -Os 'windows' -MinerDir $tmpCache
-    Assert-True '  present-but-corrupt binary on windows -> generic retry hint' ($hintCorrupt -match 'incomplete or corrupt')
+    Assert-True '  present-but-corrupt binary on windows -> reports observed state' ($hintCorrupt -match 'Observed:' -and $hintCorrupt -match '400000')
     $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
     Assert-True '  launch path prints the integrity hint' ($mineText -match 'Get-IntegrityFailureHint')
+    $dlText = Get-Content (Join-Path $libDir 'download.ps1') -Raw
+    Assert-True '  integrity check retries transient AV locks' ($dlText -match 'Test-BinaryIntegrityOnce')
 } finally {
     Remove-Item $tmpCache -Recurse -Force -ErrorAction SilentlyContinue
 }
