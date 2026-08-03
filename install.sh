@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# install.sh — one-line installer for deromine
+# install.sh — one-line installer for deromine (pwsh-free fallback)
 #
 #   curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash
+#
+# install.ps1 is the unified installer for all OSes (run via pwsh on Unix);
+# this script is the fallback for systems without PowerShell 7.
 #
 # Clones deromine into ~/.local/share/deromine (or $XDG_DATA_HOME/deromine)
 # and symlinks the launcher onto PATH at ~/.local/bin/deromine. On Termux

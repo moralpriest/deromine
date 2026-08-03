@@ -15,25 +15,25 @@ install prerequisites, run the official installer, and verify everything works:
 Install deromine (a DERO miners launcher) on this machine for me.
 
 1. Detect the OS first (`uname -s` on Linux/macOS/Termux; `$env:OS` on Windows).
-2. Linux/macOS/Termux: make sure `curl` and `git` are installed, then run the
-   official one-line installer:
+2. Run the unified PowerShell installer — the same script on every OS:
+   - Windows (PowerShell 5.1 or 7, built in):
+     `irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex`
+   - Linux/macOS/Termux (PowerShell 7 required):
+     `pwsh -c "irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex"`
+3. If `pwsh` is missing on Unix, either install PowerShell 7 for their OS
+   (brew/apt/dnf/pacman — winget on Windows) and re-run, or fall back to the
+   bash installer:
    `curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash`
-3. Windows: from PowerShell (5.1 or 7) run:
-   `irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex`
 4. Verify the install by running `deromine --miner=list` and confirm the miner
    catalog table prints. If `deromine` is not found, open a new shell first
    (the installer updates PATH); if it still fails, check
    `~/.local/share/deromine` (Linux/macOS) or
    `%USERPROFILE%\.local\share\deromine` (Windows) exists.
-5. The full interactive menu needs PowerShell 7 (`pwsh`). If it is missing,
-   tell the user how to install it for their OS (winget/brew/apt/dnf/pacman), or
-   verify the bash fallback works by running
-   `~/.local/share/deromine/mine.sh --miner=list`.
-6. Only install and verify — do NOT configure a wallet, start mining, or run any
+5. Only install and verify — do NOT configure a wallet, start mining, or run any
    miner binary without asking the user first. Miners are third-party binaries
    with dev fees, so never download anything except from the official repo
    https://github.com/moralpriest/deromine
-7. Report what you did, the install location, and how to run it.
+6. Report what you did, the install location, and how to run it.
 ````
 
 Short version, if you just want the essentials:
@@ -46,7 +46,41 @@ mining or configure a wallet without asking me.
 
 ## Installation
 
-### One-liner (Linux/macOS/Termux)
+### One-liner (all OSes)
+
+One installer script (`install.ps1`) works on every OS. Windows runs it with
+its built-in PowerShell (5.1 or 7); Unix needs PowerShell 7 (`pwsh`):
+
+Windows — from PowerShell (built in):
+
+```powershell
+irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex
+```
+
+...or from cmd:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex"
+```
+
+Linux / macOS / Termux — from any shell (PowerShell 7 required):
+
+```bash
+pwsh -c "irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex"
+```
+
+Installs to `~/.local/share/deromine` (`%USERPROFILE%\.local\share\deromine` on
+Windows) and puts the launcher on PATH — `~/.local/bin/deromine`
+(`%USERPROFILE%\.local\bin\deromine.cmd` on Windows, `$PREFIX/bin/deromine` on
+Termux). PATH is updated in the user registry on Windows or your shell profile
+(bash/zsh/fish) on Unix — open a new terminal afterwards. Re-run to update.
+Git is used when available; otherwise the source zip is downloaded, so git is
+not required.
+
+### One-liner without PowerShell (Linux/macOS/Termux)
+
+If `pwsh` isn't installed, the bash installer covers the same ground with fewer
+dependencies:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash
@@ -58,26 +92,6 @@ the one directory always on PATH there, so it works in any Termux shell.
 Re-run to update. If `~/.local/bin` isn't on your PATH, the installer adds it
 automatically to your shell profile (bash/zsh/fish) — open a new terminal
 afterwards. Manual fallback: `export PATH="$HOME/.local/bin:$PATH"`.
-
-### One-liner (Windows)
-
-From PowerShell (5.1 or 7):
-
-```powershell
-irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex
-```
-
-Or from cmd:
-
-```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/moralpriest/deromine/main/install.ps1 | iex"
-```
-
-Installs to `%USERPROFILE%\.local\share\deromine`, copies the `deromine.cmd`
-launcher to `%USERPROFILE%\.local\bin`, and adds that folder to your user
-PATH so `deromine` works from any new cmd/PowerShell window. Re-run to
-update. Git is used when available; otherwise the source zip is downloaded,
-so git is not required.
 
 ### Manual (any OS)
 
@@ -207,7 +221,7 @@ deromine/
 ├── deromine                      # Unified launcher (bash wrapper, auto-detect)
 ├── deromine.cmd                  # Unified launcher for Windows cmd
 ├── install.sh                    # One-line installer (curl | bash, Linux/macOS/Termux)
-├── install.ps1                   # One-line installer (Windows: PATH + launcher)
+├── install.ps1                   # Unified one-line installer (PowerShell, all OSes)
 ├── mine.ps1                      # Main PowerShell launcher
 ├── mine.sh                       # Bash/Termux launcher
 ├── miners.json                   # Catalog of available miners and release assets

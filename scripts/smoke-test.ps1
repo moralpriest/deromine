@@ -124,10 +124,12 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
-# 7. Windows installer (install.ps1) runs and places the launcher
+# 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
-Write-Host '7. Windows installer:' -ForegroundColor Yellow
+Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow
 if (Get-Command git -ErrorAction SilentlyContinue) {
+    $isWin = if ($IsWindows) { $true } elseif ($PSVersionTable.PSEdition -eq 'Desktop') { $true } else { $false }
+    $launcherName = if ($isWin) { 'deromine.cmd' } else { 'deromine' }
     $tmpBase = [System.IO.Path]::GetTempPath()
     $tmpInst = Join-Path $tmpBase ('deromine-test-' + [guid]::NewGuid().ToString('N'))
     $tmpBin = Join-Path $tmpBase ('deromine-bin-' + [guid]::NewGuid().ToString('N'))
@@ -137,10 +139,12 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
         & pwsh -NoProfile -File $installer -RepoUrl $projectDir -InstallDir $tmpInst -BinDir $tmpBin -NoPathEdit | Out-Null
         Assert-True '  install.ps1 ran cleanly' ($LASTEXITCODE -eq 0)
         Assert-True '  repo cloned (mine.ps1 present)' (Test-Path (Join-Path $tmpInst 'mine.ps1'))
-        Assert-True '  launcher shim placed' (Test-Path (Join-Path $tmpBin 'deromine.cmd'))
+        Assert-True "  launcher shim placed ($launcherName)" (Test-Path (Join-Path $tmpBin $launcherName))
         $shimInvokesMine = $false
-        $shimPath = Join-Path $tmpBin 'deromine.cmd'
+        $shimPath = Join-Path $tmpBin $launcherName
         if (Test-Path $shimPath) {
+            # Get-Content follows symlinks, so this works for the Unix
+            # symlinked launcher as well as the Windows copied shim.
             $shimInvokesMine = (Get-Content $shimPath -Raw) -match 'mine\.ps1'
         }
         Assert-True '  shim invokes mine.ps1' $shimInvokesMine
