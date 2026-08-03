@@ -93,7 +93,7 @@ function Read-WalletAddress {
         if ($Default) {
             $prompt = "Your DERO wallet address (default: $Default, leave empty to use it)"
         } else {
-            $prompt = 'Your DERO wallet address (dero1... or deto1... leave empty to cancel)'
+            $prompt = 'Your DERO wallet address (dero1..., deroi1..., or deto1... leave empty to cancel)'
         }
         $addr = Read-Host $prompt
         if (-not $addr -and $Default) { return $Default }
@@ -102,7 +102,7 @@ function Read-WalletAddress {
             return $null
         }
         if (Test-WalletAddress $addr) { return $addr }
-        Write-Host '[x] Invalid DERO address. Must start with dero1 or deto1 (50-120 chars).' -ForegroundColor Red
+        Write-Host '[x] Invalid DERO address. Use a dero1..., deroi1..., or deto1... address (50-120 chars).' -ForegroundColor Red
         Write-Host '    Example: dero1qy8qmf45w3hccaev2fqz3jpxt3k5xz3w5f3u9qetnd5c6y5zqt5zhqzwx8cvd' -ForegroundColor DarkYellow
     }
 }

@@ -80,6 +80,17 @@ try {
     Remove-Item $tmpSchema -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 2c. Both runners use the integrated default wallet.
+Write-Host ''
+Write-Host '2c. Default wallet:' -ForegroundColor Yellow
+$expectedWallet = 'deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23'
+$mineShText = Get-Content (Join-Path $projectDir 'mine.sh') -Raw
+$minePsText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+$expectedBashDefault = 'DEFAULT_WALLET="' + $expectedWallet + '"'
+$expectedPsDefault = '$defaultWalletAddress = ''' + $expectedWallet + ''''
+Assert-True '  Bash uses integrated default wallet' ($mineShText -match [regex]::Escape($expectedBashDefault))
+Assert-True '  PowerShell uses integrated default wallet' ($minePsText -match [regex]::Escape($expectedPsDefault))
+
 # 3. Helper modules load without errors
 Write-Host ''
 Write-Host '3. Helper modules:' -ForegroundColor Yellow

@@ -7,6 +7,7 @@ BIN_DIR="$PROJECT_DIR/bin"
 CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 DEFAULT_DAEMON_PORT=10100
+DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"
@@ -892,7 +893,7 @@ if $BENCH_MODE; then
         [ -z "$WALLET_ADDR" ] && WALLET_ADDR=$(jq -r '.wallet_address // ""' "$CONFIG_FILE")
     fi
     [ -z "$DAEMON_URL" ] && DAEMON_URL="http://127.0.0.1:10100"
-    [ -z "$WALLET_ADDR" ] && WALLET_ADDR="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
+    [ -z "$WALLET_ADDR" ] && WALLET_ADDR="$DEFAULT_WALLET"
     LIVE_DAEMON="${DAEMON_URL#http://}"
     LIVE_DAEMON="${LIVE_DAEMON#https://}"
 
@@ -1088,7 +1089,6 @@ fi
 mkdir -p "$BIN_DIR"
 
 # Wallet
-DEFAULT_WALLET=""
 if [ -f "$PROJECT_DIR/config.bak" ]; then
     DEFAULT_WALLET=$(jq -r '.wallet_address // ""' "$PROJECT_DIR/config.bak")
 fi
@@ -1102,7 +1102,7 @@ while [ -z "$WALLET_ADDR" ]; do
     if [ -n "$DEFAULT_WALLET" ]; then
         printf "%s Your DERO wallet address (default: %s, leave empty to use it): " "$ARROW" "$DEFAULT_WALLET" >&2
     else
-        printf "%s Your DERO wallet address (dero1... or deto1...): " "$ARROW" >&2
+        printf "%s Your DERO wallet address (dero1..., deroi1..., or deto1...): " "$ARROW" >&2
     fi
     read -r addr
     if [ -z "$addr" ] && [ -n "$DEFAULT_WALLET" ]; then

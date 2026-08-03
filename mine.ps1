@@ -15,6 +15,7 @@ foreach ($f in Get-ChildItem $libDir -Filter '*.ps1' | Sort-Object Name) {
 
 # ── Defaults ──
 $daemonUrl       = 'http://node.derofoundation.org:10100'
+$defaultWalletAddress = 'deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23'
 $daemonFlag      = $false
 $walletAddress   = ''
 $minerType       = $null
@@ -155,7 +156,7 @@ if ($benchmark) {
     $cfg = Read-Config $configPath
     if (-not $cfg) { $cfg = [PSCustomObject]@{} }
     if (-not $walletAddress -and $cfg.PSObject.Properties['wallet_address'] -and $cfg.wallet_address) { $walletAddress = [string]$cfg.wallet_address }
-    if (-not $walletAddress) { $walletAddress = 'deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23' }
+    if (-not $walletAddress) { $walletAddress = $defaultWalletAddress }
     if (-not $daemonFlag) {
         if ($cfg.PSObject.Properties['daemon_url'] -and $cfg.daemon_url) { $daemonUrl = [string]$cfg.daemon_url }
         else { $daemonUrl = 'http://127.0.0.1:10100' }
@@ -252,7 +253,7 @@ if (-not $config) {
 }
 
 # ── Default wallet (from config.bak, shown in prompt when no wallet saved) ──
-$defaultWallet = ''
+$defaultWallet = $defaultWalletAddress
 $bakPath = Join-Path $projectDir 'config.bak'
 if (Test-Path $bakPath) {
     $bak = Read-Config $bakPath

@@ -53,6 +53,14 @@ unset -f validate_catalog_file validate_config_file
 
 # 3. --version works through the unified launcher
 echo ""
+echo "2c. Default wallet:"
+if grep -q 'DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"' mine.sh && grep -q 'defaultWalletAddress = '\''deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23'\''' mine.ps1; then
+    pass "both runners use the integrated default wallet"
+else
+    fail "both runners use the integrated default wallet"
+fi
+
+echo ""
 echo "3. Version flag:"
 ver=$(./deromine --version 2>&1 | head -1)
 if [[ "$ver" =~ ^deromine\ [0-9]+\.[0-9]+\.[0-9]+$ ]]; then
