@@ -57,7 +57,7 @@ function Show-Help {
     Write-Host 'Usage: deromine [options]' -ForegroundColor White
     Write-Host ''
     Write-Host '  --version              Show version and exit' -ForegroundColor Gray
-    Write-Host '  --announce             Print the release announcement' -ForegroundColor Gray
+    Write-Host '  --reconfigure          Re-run setup: ask for wallet, node, threads again' -ForegroundColor Gray
     Write-Host '  --miner=<id>           Miner id, or "list" to show the catalog table' -ForegroundColor Gray
     Write-Host '  --wallet=<addr>        DERO wallet address' -ForegroundColor Gray
     Write-Host '  --daemon-url=<url>     Node/pool host:port (scheme optional)' -ForegroundColor Gray
@@ -78,25 +78,6 @@ function Show-Help {
     Write-Host '  deromine --miner=list' -ForegroundColor Gray
     Write-Host '  deromine --miner=tnn --dev-fee=1' -ForegroundColor Gray
     Write-Host '  deromine --miner=c --dry-run' -ForegroundColor Gray
-    Write-Host ''
-    exit 0
-}
-
-function Show-Announcement {
-    Write-Banner
-    Write-Host 'deromine v1.0.0 — one launcher for every DERO miner, on any OS.' -ForegroundColor White
-    Write-Host ''
-    Write-Host '  ▪ Dirtybird C / Rust / Go / Zig + CUDA / Go-GPU' -ForegroundColor Gray
-    Write-Host '  ▪ Official DeroHE, DeroLuna, TNN, Astronv' -ForegroundColor Gray
-    Write-Host '  ▪ Auto-downloads releases from GitHub/GitLab — no compilation' -ForegroundColor Gray
-    Write-Host '  ▪ Interactive menu, CLI flags, benchmark mode, auto-restart' -ForegroundColor Gray
-    Write-Host '  ▪ Linux · macOS · Windows · Termux' -ForegroundColor Gray
-    Write-Host ''
-    Write-Host '  Install:' -ForegroundColor White
-    Write-Host '    curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash' -ForegroundColor Cyan
-    Write-Host ''
-    Write-Host '  Repo: https://github.com/moralpriest/deromine' -ForegroundColor DarkCyan
-    Write-Host '  Open source. 0%-fee miners first, dev-fee miners clearly marked.' -ForegroundColor DarkGray
     Write-Host ''
     exit 0
 }

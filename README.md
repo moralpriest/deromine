@@ -174,6 +174,7 @@ Select a miner from the menu, configure wallet/daemon/threads, and start mining.
 | `--max-restart=...` | Max restarts (default 5) |
 | `--delay=...` | Restart delay in seconds (default 10) |
 | `--dry-run` | Resolve release + print command without launching |
+| `--reconfigure` | Re-run setup: ask for wallet, node, threads again (old config kept in `config.bak`) |
 | `--benchmark` | Benchmark all supported miners |
 | `--bench-time=...` | Benchmark seconds per miner (default 30) |
 | `--output-dir=...` | Where binaries are stored (default `bin/`) |
@@ -199,6 +200,7 @@ pwsh ./mine.ps1 --miner=tnn --dev-fee=1
 | `--dev-fee=...` | Developer fee % (only used by miners that support it, e.g. TNN) |
 | `--auto-restart` / `--max-restart=...` / `--delay=...` | Auto-restart controls |
 | `--dry-run` | Resolve release + print command without launching |
+| `--reconfigure` | Re-run setup: ask for wallet, node, threads again (old config kept in `config.bak`) |
 | `--benchmark` / `--bench-time=...` | Benchmark mode |
 | `-h` / `--help` / `/?` | Show usage and exit |
 

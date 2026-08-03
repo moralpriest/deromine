@@ -19,6 +19,7 @@ $autoRestart     = $false
 $maxRestart      = 5
 $restartDelay    = 10
 $dryRun          = $false
+$reconfigure     = $false
 $benchmark       = $false
 $benchTime       = 30
 $addExclusion    = $false
@@ -51,13 +52,9 @@ for ($i = 0; $i -lt $params.Count; $i++) {
         Write-Host "deromine $script:DeromineVersion"
         exit 0
     }
-    if ($params[$i] -eq '--announce') {
-        Show-Announcement
-    }
-    if ($params[$i] -eq '--add-exclusion') {
-        $addExclusion = $true
-    }
     switch -Wildcard ($params[$i]) {
+        '--reconfigure'       { $reconfigure     = $true }
+        '--add-exclusion'     { $addExclusion    = $true }
         '--daemon=*'          { $daemonUrl      = Join-DaemonValue $params $i; $daemonFlag = $true }
         '--wallet=*'          { $walletAddress   = ($params[$i] -split '=')[1] }
         '--miner=*'           { $minerType       = ($params[$i] -split '=')[1] }
@@ -91,6 +88,21 @@ if (-not $devFeeOverride) {
     if ($cfgEarly) {
         $dfProp = $cfgEarly.PSObject.Properties['dev_fee']
         if ($dfProp -and $dfProp.Value) { $devFeeOverride = [string]$dfProp.Value }
+    }
+}
+
+# ── Reconfigure: re-run the setup prompts from scratch ──
+# Moves the current config aside (to config.bak, the default-wallet source the
+# prompts already read) and deletes it, so wallet/daemon/threads are all asked
+# again instead of being reused from disk.
+if ($reconfigure) {
+    $bakPath = Join-Path $projectDir 'config.bak'
+    if (Test-Path $configPath) {
+        Copy-Item $configPath $bakPath -Force
+        Remove-Item $configPath -Force
+        Write-Success "Previous config backed up to $bakPath; starting fresh setup"
+    } else {
+        Write-Host "No existing config to reset; starting fresh setup" -ForegroundColor DarkYellow
     }
 }
 
