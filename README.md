@@ -160,6 +160,8 @@ pwsh ./mine.ps1
 ```
 
 Select a miner from the menu, configure wallet/daemon/threads, and start mining.
+At the daemon prompt you can pick a listed node, type `c` to enter your own
+`host:port` (e.g. your own node or a pool), or `q` to quit.
 
 ### CLI Parameters (PowerShell)
 

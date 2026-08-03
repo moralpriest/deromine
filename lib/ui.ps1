@@ -245,6 +245,31 @@ function Write-DaemonTable {
     return $Daemons
 }
 
+# Daemon endpoint prompt. Picks a number from the catalog table, lets the user
+# type a custom node (host:port) with 'c', or quit with 'q'. Returns the URL
+# string, or $null when the user quits.
+function Read-DaemonEndpoint {
+    param([array]$Daemons)
+    $b = Get-BoxChars
+    while ($true) {
+        Write-PromptHeader 'Select a daemon endpoint:'
+        $null = Write-DaemonTable $Daemons
+        $choice = Read-Host "Choice (1-$($Daemons.Count)), $($b.Prompt) c for a custom node, q to quit"
+        if ($choice -match '^(q|quit|x|exit)$') { return $null }
+        if ($choice -match '^(c|custom)$') {
+            $custom = Read-Host 'Custom node (host:port, e.g. 192.168.1.10:10100)'
+            if (Test-DaemonUrl $custom) { return $custom.Trim() }
+            Write-Host "[x] Invalid node. Use host:port (e.g. node.example.org:10100)." -ForegroundColor Red
+            continue
+        }
+        $n = 0
+        if ([int]::TryParse($choice, [ref]$n) -and $n -ge 1 -and $n -le $Daemons.Count) {
+            return [string]$Daemons[$n - 1].url
+        }
+        Write-Host "[x] Invalid choice '$choice'" -ForegroundColor Red
+    }
+}
+
 function Write-LaunchSummary {
     param([object]$Miner, [string]$Binary, [string]$Daemon, [string]$Wallet, [int]$Threads, [string]$DevFee = '')
     $b = Get-BoxChars

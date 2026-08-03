@@ -632,6 +632,49 @@ draw_daemon_table() {
     echo "${C_BORDER}$bot${C_RESET}"
 }
 
+# Accepts a custom node the user typed at the daemon prompt: optional
+# http(s):// scheme, hostname / IPv4 / bracketed IPv6, a required port, and
+# an optional path. Anything else (bare words, no port) is rejected.
+valid_daemon_url() {
+    [[ "$1" =~ ^(https?://)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+):[0-9]+(/.*)?$ ]]
+}
+
+# Daemon endpoint prompt. Picks a number from the catalog table, lets the user
+# type a custom node (host:port) with 'c', or quit with 'q'. Sets DAEMON_URL
+# and returns 0 on success; returns 1 when the user quits.
+select_daemon() {
+    local daemon_jsons=() d dchoice custom
+    while IFS= read -r d; do
+        [ -n "$d" ] && daemon_jsons+=("$d")
+    done < <(jq -c '.daemons[]' "$MINERS_FILE")
+    while true; do
+        echo "" >&2
+        echo "${C_HDR}Select daemon endpoint:${C_RESET}" >&2
+        draw_daemon_table "${daemon_jsons[@]:-}" >&2
+        printf "Choice (1-%d), c for a custom node, q to quit: " "${#daemon_jsons[@]}" >&2
+        read -r dchoice || return 1
+        case "$dchoice" in
+            q|Q|quit|x|exit) return 1 ;;
+            c|C|custom)
+                printf "Custom node (host:port, e.g. 192.168.1.10:10100): " >&2
+                read -r custom || continue
+                if [ -n "$custom" ] && valid_daemon_url "$custom"; then
+                    DAEMON_URL="$custom"
+                    return 0
+                fi
+                echo "${C_ERR}[x] Invalid node. Use host:port (e.g. node.example.org:10100).${C_RESET}" >&2
+                ;;
+            *)
+                if [[ "$dchoice" =~ ^[0-9]+$ ]] && [ "$dchoice" -ge 1 ] && [ "$dchoice" -le "${#daemon_jsons[@]}" ]; then
+                    DAEMON_URL=$(echo "${daemon_jsons[$((dchoice - 1))]}" | jq -r '.url')
+                    return 0
+                fi
+                echo "${C_ERR}[x] Invalid choice '$dchoice'${C_RESET}" >&2
+                ;;
+        esac
+    done
+}
+
 draw_banner() {
     local width="${COLUMNS:-80}"
     local title="deromine"
@@ -1002,18 +1045,9 @@ if [ "$DAEMON_FLAG" -eq 0 ]; then
             fi
         fi
         if [ -z "$DAEMON_URL" ]; then
-        DAEMON_JSONS=()
-        while IFS= read -r d; do
-            [ -n "$d" ] && DAEMON_JSONS+=("$d")
-        done < <(jq -c '.daemons[]' "$MINERS_FILE")
-        echo "" >&2
-        echo "${C_HDR}Select daemon endpoint:${C_RESET}" >&2
-        draw_daemon_table "${DAEMON_JSONS[@]:-}" >&2
-        printf "Choice (1-%d): " "${#DAEMON_JSONS[@]}" >&2
-        read -r dchoice
-        dsel="${DAEMON_JSONS[$((dchoice - 1))]:-}"
-        [ -z "$dsel" ] && { echo "${C_ERR}[x] Invalid choice${C_RESET}" >&2; exit 1; }
-        DAEMON_URL=$(echo "$dsel" | jq -r '.url')
+            if ! select_daemon; then
+                exit 0
+            fi
         fi
     fi
 fi

@@ -209,6 +209,29 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 4e. Daemon URL validation (custom node entry): the daemon prompt lets the
+# user type a custom host:port. Test-DaemonUrl must accept valid node
+# formats (scheme optional, IPv4/IPv6, required port) and reject bare words.
+Write-Host ''
+Write-Host '4e. Daemon URL validation:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'config.ps1')
+    Assert-True '  host:port accepted' (Test-DaemonUrl '192.168.1.10:10100')
+    Assert-True '  scheme + host:port accepted' (Test-DaemonUrl 'http://node.example.org:10100')
+    Assert-True '  https + path accepted' (Test-DaemonUrl 'https://pool.example.org:10100/stratum')
+    Assert-True '  bracketed IPv6 accepted' (Test-DaemonUrl '[::1]:10100')
+    Assert-True '  bare word rejected' (-not (Test-DaemonUrl 'mynode'))
+    Assert-True '  missing port rejected' (-not (Test-DaemonUrl 'node.example.org'))
+    Assert-True '  empty rejected' (-not (Test-DaemonUrl '   '))
+    $uiText = Get-Content (Join-Path $libDir 'ui.ps1') -Raw
+    Assert-True '  Read-DaemonEndpoint offers custom entry' ($uiText -match 'custom node')
+    $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  mine.ps1 uses Read-DaemonEndpoint for the prompt' ($mineText -match 'Read-DaemonEndpoint')
+} catch {
+    Assert-True '  daemon URL validation works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+}
+
 # 5. Binary name resolution
 Write-Host ''
 Write-Host '5. Binary name resolution:' -ForegroundColor Yellow

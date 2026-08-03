@@ -28,6 +28,15 @@ function Test-WalletAddress {
     return $Address -match '^[13d][a-zA-Z0-9]{50,120}$'
 }
 
+# Accepts a custom node the user typed at the daemon prompt: optional
+# http(s):// scheme, hostname / IPv4 / bracketed IPv6, a required port, and
+# an optional path. Anything else (bare words, no port) is rejected.
+function Test-DaemonUrl {
+    param([string]$Url)
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
+    return $Url -match '^(https?://)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+):[0-9]+(/.*)?$'
+}
+
 function Read-WalletAddress {
     param([string]$Default = '')
     Write-Host ''

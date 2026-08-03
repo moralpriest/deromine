@@ -289,24 +289,12 @@ if ($daemonFlag) {
             $effectiveDaemon = $savedDaemon
         } else {
             Write-Host "Stale saved daemon ($savedDaemon) is not a mining port; ignoring." -ForegroundColor DarkYellow
-            $daemons = @()
-            foreach ($d in $catalog.daemons) {
-                $daemons += @{ name = $d.name; url = $d.url }
-            }
-            Write-PromptHeader 'Select a daemon endpoint:'
-            $null = Write-DaemonTable $daemons
-            $daemonChoice = Read-Host "Choice (1-$($daemons.Count))"
-            $effectiveDaemon = $daemons[[int]$daemonChoice - 1].url
+            $effectiveDaemon = Read-DaemonEndpoint $catalog.daemons
+            if (-not $effectiveDaemon) { exit 0 }
         }
     } else {
-        $daemons = @()
-        foreach ($d in $catalog.daemons) {
-            $daemons += @{ name = $d.name; url = $d.url }
-        }
-        Write-PromptHeader 'Select a daemon endpoint:'
-        $null = Write-DaemonTable $daemons
-        $daemonChoice = Read-Host "Choice (1-$($daemons.Count))"
-        $effectiveDaemon = $daemons[[int]$daemonChoice - 1].url
+        $effectiveDaemon = Read-DaemonEndpoint $catalog.daemons
+        if (-not $effectiveDaemon) { exit 0 }
     }
 }
 
