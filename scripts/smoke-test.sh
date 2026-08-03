@@ -185,12 +185,15 @@ printf '\x7fELF' | dd of="$tmpcache/good.bin" bs=1 seek=0 conv=notrunc 2>/dev/nu
 head -c 400000 /dev/zero > "$tmpcache/bad.bin"
 printf 'NOPE' | dd of="$tmpcache/bad.bin" bs=1 seek=0 conv=notrunc 2>/dev/null
 printf '\x7fELFtiny' > "$tmpcache/small.bin"
+head -c 180000 /dev/zero > "$tmpcache/compact.bin"
+printf '\x7fELF' | dd of="$tmpcache/compact.bin" bs=1 seek=0 conv=notrunc 2>/dev/null
 eval "$(sed -n '/^binary_integrity_ok()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^cached_binary_usable()/,/^}/p' mine.sh)"
 OS=linux
 if binary_integrity_ok "$tmpcache/good.bin"; then pass "integrity accepts valid ELF binary"; else fail "integrity accepts valid ELF binary"; fi
 if binary_integrity_ok "$tmpcache/bad.bin"; then fail "integrity rejects wrong magic"; else pass "integrity rejects wrong magic"; fi
 if binary_integrity_ok "$tmpcache/small.bin"; then fail "integrity rejects tiny file"; else pass "integrity rejects tiny file"; fi
+if binary_integrity_ok "$tmpcache/compact.bin"; then pass "integrity accepts valid compact ELF binary"; else fail "integrity accepts valid compact ELF binary"; fi
 cp "$tmpcache/good.bin" "$tmpcache/cached.bin"
 printf 'v0.3.0\n' > "$tmpcache/cached.bin.tag"
 if cached_binary_usable "$tmpcache/cached.bin" "v0.3.0"; then pass "matching tag + valid binary is usable"; else fail "matching tag + valid binary is usable"; fi

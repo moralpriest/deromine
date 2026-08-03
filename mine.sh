@@ -286,14 +286,17 @@ get_archive_binary_name() {
 }
 
 # ── Cache integrity & version check ──
-# A miner binary must be a complete, platform-valid executable. This catches
-# truncated/interrupted extractions that used to be cached forever — a corrupt
-# binary can still run far enough to print its usage screen instead of mining.
+# A miner binary must be sufficiently complete and platform-valid. The size
+# floor catches truncated/interrupted extractions while allowing compact
+# stripped miners such as Dirtybird C++ (~178 KiB).
 binary_integrity_ok() {
     local path="$1" size magic
     [ -f "$path" ] || return 1
     size=$(stat -c %s "$path" 2>/dev/null || stat -f %z "$path" 2>/dev/null || echo 0)
-    [ "$size" -ge 200000 ] || return 1
+    # Valid stripped miners can be smaller than 200 KB (Dirtybird C++ is
+    # about 178 KB), so use a conservative 64 KiB floor and rely on the
+    # platform executable magic below for the format check.
+    [ "$size" -ge 65536 ] || return 1
     magic=$(head -c 4 "$path" 2>/dev/null | od -An -tx1 | tr -d ' \n')
     case "$OS" in
         windows) [[ "$magic" == 4d5a* ]] || return 1 ;;                                        # MZ

@@ -274,7 +274,10 @@ function Test-BinaryIntegrityOnce {
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     try {
         $fi = Get-Item -LiteralPath $Path
-        if ($fi.Length -lt 200000) { return $false }
+        # Valid stripped miners can be smaller than 200 KB (Dirtybird C++ is
+        # about 178 KB), so use a conservative 64 KiB floor and rely on the
+        # platform executable magic below for the format check.
+        if ($fi.Length -lt 65536) { return $false }
         $fs = [System.IO.File]::OpenRead($Path)
         try {
             $buf = New-Object byte[] 4
@@ -365,7 +368,7 @@ Then run deromine again.
         # AV/process) is holding it. Only claim "correct full size" when the
         # size was actually verified as plausible; otherwise stick to the
         # Observed line, which already shows the truth.
-        $sizeClause = if ($sizeNum -ge 200000) { ' has its correct full size but' } else { '' }
+        $sizeClause = if ($sizeNum -ge 65536) { ' meets the minimum size check but' } else { '' }
         return @"
 Observed: $state - an AV/process is holding the file open
 

@@ -372,9 +372,14 @@ try {
     $badBuf = New-Object byte[] 400000
     [System.IO.File]::WriteAllBytes($bad, $badBuf)
     [System.IO.File]::WriteAllBytes($small, @([byte]0x7F, 0x45, 0x4C, 0x46, 0x74, 0x69, 0x6E, 0x79))
+    $compact = Join-Path $tmpCache 'compact.bin'
+    $compactBuf = New-Object byte[] 178145
+    $compactBuf[0] = 0x7F; $compactBuf[1] = 0x45; $compactBuf[2] = 0x4C; $compactBuf[3] = 0x46
+    [System.IO.File]::WriteAllBytes($compact, $compactBuf)
     Assert-True '  integrity accepts valid ELF binary' (Test-BinaryIntegrity $good 'linux')
     Assert-True '  integrity rejects wrong magic' (-not (Test-BinaryIntegrity $bad 'linux'))
     Assert-True '  integrity rejects tiny file' (-not (Test-BinaryIntegrity $small 'linux'))
+    Assert-True '  integrity accepts valid compact ELF binary' (Test-BinaryIntegrity $compact 'linux')
     $cached = Join-Path $tmpCache 'cached.bin'
     [System.IO.File]::WriteAllBytes($cached, $goodBuf)
     Set-Content -LiteralPath "$cached.tag" -Value 'v0.3.0' -NoNewline
