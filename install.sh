@@ -40,7 +40,8 @@ run_privileged() {
 show_pwsh_install_guide() {
     case "$(uname -s)" in
         Darwin*)
-            echo "      brew install --cask powershell" >&2 ;;
+            echo "      brew install --cask powershell" >&2
+            echo "      Verify with: pwsh --version   (p-w-s-h)" >&2 ;;
         *)
             if $is_termux; then
                 echo "      pkg install -y powershell" >&2
@@ -64,7 +65,9 @@ install_pwsh_if_missing() {
     }
 
     if [ "${DEROMINE_AUTO_INSTALL_PWSH:-0}" != "1" ]; then
-        if [ -t 1 ] && [ -r /dev/tty ]; then
+        # In `curl ... | bash`, stdout is a pipe, so do not use `-t 1` here.
+        # A controlling terminal is still safe to prompt through /dev/tty.
+        if [ -r /dev/tty ]; then
             printf '  PowerShell 7 (pwsh) is missing. Install it now? [Y/n] ' >&2
             read -r answer </dev/tty || answer='n'
             case "$answer" in
@@ -82,11 +85,31 @@ install_pwsh_if_missing() {
     if $is_termux; then
         pkg install -y powershell || return 1
     elif [ "$(uname -s)" = "Darwin" ]; then
-        command -v brew >/dev/null 2>&1 || {
+        brew_cmd="$(command -v brew 2>/dev/null || true)"
+        if [ -z "$brew_cmd" ]; then
+            for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+                if [ -x "$candidate" ]; then brew_cmd="$candidate"; break; fi
+            done
+        fi
+        if [ -z "$brew_cmd" ]; then
             echo "  [!] Homebrew is required on macOS: https://brew.sh" >&2
             return 1
+        fi
+        brew_prefix="$($brew_cmd --prefix 2>/dev/null || true)"
+        [ -d "$brew_prefix/bin" ] && export PATH="$brew_prefix/bin:$PATH"
+        "$brew_cmd" install --cask powershell || {
+            echo "  [!] Homebrew could not install PowerShell." >&2
+            echo "      Check existing installs with:" >&2
+            echo "      $brew_cmd list --formula powershell; $brew_cmd list --cask powershell" >&2
+            echo "      Then resolve any formula/cask conflict and retry:" >&2
+            echo "      $brew_cmd install --cask powershell" >&2
+            return 1
         }
-        brew install --cask powershell || return 1
+        if ! command -v pwsh >/dev/null 2>&1; then
+            echo "  [!] Homebrew reported success, but 'pwsh' is not on PATH yet." >&2
+            echo "      Open a new terminal, then verify with: pwsh --version" >&2
+            return 1
+        fi
     elif command -v apt-get >/dev/null 2>&1; then
         # Prefer an existing package; otherwise register Microsoft's official
         # repository for Debian/Ubuntu before installing.
