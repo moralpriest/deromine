@@ -104,6 +104,15 @@ case "$(uname -m)" in
     armv7l|armv8l) ARCH="arm" ;;
 esac
 
+# Termux (Android): $PREFIX is set by Termux and $PREFIX/bin is the one
+# directory always on PATH there (same detection as install.sh/install.ps1).
+# Requiring 'com.termux' in the path avoids false positives when an unrelated
+# PREFIX (e.g. Autotools) is exported on desktop Linux.
+IS_TERMUX=0
+if [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ]; then
+    IS_TERMUX=1
+fi
+
 # ── Terminal capabilities ──
 has_unicode() {
     local charmap
@@ -278,6 +287,11 @@ miner_hardware_ok() {
     local miner_json="$1"
     local req
     local needs
+    # Platform exclusions (e.g. derohe is glibc-only and fails its ELF
+    # self-check on Termux/Android, so it is marked unsupported there).
+    if [ "$IS_TERMUX" -eq 1 ] && echo "$miner_json" | jq -e '.unsupported | index("termux")' >/dev/null 2>&1; then
+        return 1
+    fi
     needs=($(echo "$miner_json" | jq -r '.requires[]? // empty'))
     for req in "${needs[@]:-}"; do
         case "$req" in
@@ -710,7 +724,7 @@ if [ -z "$MINER_JSON" ]; then
     exit 1
 fi
 if ! miner_hardware_ok "$MINER_JSON"; then
-    echo "${C_ERR}[x] Miner '$MINER_ID' hardware requirements not met on this host${C_RESET}"
+    echo "${C_ERR}[x] Miner '$MINER_ID' is not supported on this host${C_RESET}"
     exit 1
 fi
 

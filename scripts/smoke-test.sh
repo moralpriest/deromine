@@ -100,6 +100,32 @@ agot=$(echo "$der_he" | jq -r --arg os "linux" --arg arch "aarch64" '
     // ""')
 if [ "$agot" = "$awant" ]; then pass "derohe linux/aarch64 archive name -> $agot"; else fail "derohe linux/aarch64 archive name -> $agot (want $awant)"; fi
 
+# 5c. Termux exclusions (derohe must be hidden on Android/Termux)
+echo ""
+echo "5c. Termux exclusions:"
+fake_base=$(mktemp -d)
+mkdir -p "$fake_base/com.termux/bin"
+fake_prefix="$fake_base/com.termux"
+# derohe must be excluded under a Termux-like environment...
+if PREFIX="$fake_prefix" bash -c '
+    [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ] \
+        && jq -e ".miners[] | select(.id == \"derohe\") | .unsupported | index(\"termux\")" miners.json >/dev/null 2>&1
+'; then
+    pass "derohe excluded on Termux"
+else
+    fail "derohe excluded on Termux"
+fi
+# ...while dirtybird rust stays available.
+if PREFIX="$fake_prefix" bash -c '
+    [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ] \
+        && jq -e ".miners[] | select(.id == \"rust\") | .unsupported | index(\"termux\")" miners.json >/dev/null 2>&1
+'; then
+    fail "rust excluded on Termux"
+else
+    pass "rust not excluded on Termux"
+fi
+rm -rf "$fake_base"
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

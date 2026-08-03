@@ -182,7 +182,7 @@ else {
         exit 1
     }
     if (-not (Test-MinerHardwareSupported $miner)) {
-        Write-Error "Miner '$minerType' hardware requirements not met on this host"
+        Write-Error "Miner '$minerType' is not supported on this host"
         exit 1
     }
 }

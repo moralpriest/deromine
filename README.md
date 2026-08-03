@@ -252,7 +252,7 @@ deromine/
 | zig | Dirtybird Zig | dirtybird-zig-miner | cpu | 0% | Open source | Small binary |
 | cuda | Dirtybird CUDA | dirtybird-openastronv_v3 | gpu | 0% | Open source | NVIDIA GPU required |
 | go-gpu | Dirtybird Go GPU | dirtybird-go-gpu-miner | gpu | 0% | Open source | Any Vulkan GPU |
-| derohe | DERO HE Default Miner | dero-miner-linux-amd64 | cpu | 0% | Official | Official default miner |
+| derohe | DERO HE Default Miner | dero-miner-linux-amd64 | cpu | 0% | Official | Official default miner; not on Termux/Android |
 | deroluna | DeroLuna | deroluna-miner | cpu | 10% | Closed source | GitLab releases |
 | tnn | TNN | tnn-miner | both | 2.5% | Closed DLLs | CPU+GPU, dev fee configurable via `--dev-fee` |
 | astronv | Astronv | astronv | gpu | 4.9% | Closed source | NVIDIA GPU, Linux only |
@@ -260,7 +260,10 @@ deromine/
 Ordering is intentional: open-source 0%-fee miners first, then the official DeroHE
 miner, then closed-source / dev-fee miners at the bottom. Miners whose hardware
 requirements are not met (e.g. GPU miners without the right GPU) are hidden from
-the list on that host.
+the list on that host, as are miners marked `unsupported` for the platform — for
+example `derohe` on Termux/Android, whose arm64 release fails its own ELF check.
+On Termux, use the Dirtybird miners (`c`, `rust`, `go`, `zig`), which ship
+dedicated Android arm64 builds.
 
 ### List columns
 
@@ -360,3 +363,7 @@ Both suites fail with exit code 1 on any regression.
   and try again.
 - **Astronv fails to start**: it needs NVIDIA drivers (`libnvidia-ml.so.1`) and is
   Linux amd64 only.
+- **derohe is missing from the list on Termux/Android**: derohe's arm64 release
+  fails its own ELF self-check (`unexpected e_type: 2`) on Android/Termux, so it
+  is marked `unsupported` there and hidden. Use the Dirtybird miners instead:
+  `deromine --miner=rust` (or `c`/`go`/`zig`) — they ship Android arm64 builds.

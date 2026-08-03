@@ -124,6 +124,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Official",
+      "unsupported": ["termux"],
       "type": "cpu",
       "flags": {
         "daemon": "--daemon-rpc-address",

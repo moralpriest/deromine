@@ -142,6 +142,23 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 6c. Termux exclusions (derohe must be hidden on Android/Termux)
+Write-Host ''
+Write-Host '6c. Termux exclusions:' -ForegroundColor Yellow
+$savedPrefix = $env:PREFIX
+try {
+    $fakePrefix = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-com.termux-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path (Join-Path $fakePrefix 'bin') -Force | Out-Null
+    $env:PREFIX = $fakePrefix
+    $deroheT = Get-MinerByMinerId $catalog 'derohe'
+    $rustT = Get-MinerByMinerId $catalog 'rust'
+    Assert-True '  derohe hidden on Termux' (-not (Test-MinerHardwareSupported $deroheT))
+    Assert-True '  rust still supported on Termux' (Test-MinerHardwareSupported $rustT)
+} finally {
+    $env:PREFIX = $savedPrefix
+    Remove-Item (Join-Path ([System.IO.Path]::GetTempPath()) 'deromine-com.termux-*') -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
 Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow

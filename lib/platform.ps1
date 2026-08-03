@@ -69,8 +69,26 @@ function Test-HasVulkanGpu {
     }
 }
 
+function Test-IsTermux {
+    # Termux (Android) is detected the same way as in install.sh/install.ps1:
+    # $PREFIX is set by Termux and $PREFIX/bin is its always-on-PATH dir.
+    # Requiring 'com.termux' in the path avoids false positives when an
+    # unrelated PREFIX (e.g. Autotools) is exported on desktop Linux.
+    return [bool]($env:PREFIX -and ($env:PREFIX -match 'com\.termux') -and (Test-Path (Join-Path $env:PREFIX 'bin')))
+}
+
 function Test-MinerHardwareSupported {
     param([object]$Miner)
+    # Platform exclusions from the catalog (e.g. glibc-only miners on
+    # Termux/Android: derohe's arm64 release fails its ELF self-check).
+    # NOTE: keep this in separate statements - an inline chain like
+    # 'Test-IsTermux -and $Miner.PSObject.Properties["x"] -and (...)'
+    # mis-parses in PowerShell (evaluates truthy) and would hide miners.
+    $excludedOnTermux = $false
+    if (Test-IsTermux) {
+        $excludedOnTermux = @($Miner.unsupported) -contains 'termux'
+    }
+    if ($excludedOnTermux) { return $false }
     if (-not $Miner.PSObject.Properties['requires']) { return $true }
     foreach ($req in $Miner.requires) {
         switch ($req) {
