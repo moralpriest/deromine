@@ -1054,10 +1054,34 @@ fi
 while true; do
     if [ -n "$LOGFILE" ]; then
         echo "=== $(date +%H:%M:%S) run $((RESTART_COUNT + 1))/$MAX_RESTART ($MINER_ID) ===" >> "$LOGFILE" 2>/dev/null || true
-        "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1 || true
+        # Report how the launch ended (a silent instant exit - missing DLLs,
+        # corrupt binary - used to be a black box). SIGINT (130) is a normal
+        # stop, not a crash.
+        if "$BINARY_PATH" "${CMD_ARGS[@]}" >> "$LOGFILE" 2>&1; then
+            echo "[*] Miner stopped (exit code 0)" >&2
+        else
+            rc=$?
+            if [ "$rc" -eq 130 ]; then
+                echo "[*] Miner stopped (interrupted)" >&2
+                echo "Miner stopped (interrupted, code 130)" >> "$LOGFILE" 2>/dev/null || true
+            else
+                echo "[!] Miner exited with code $rc (log: $LOGFILE)" >&2
+                echo "Miner exited with code $rc" >> "$LOGFILE" 2>/dev/null || true
+            fi
+        fi
     else
         # No log file: run in the foreground so output stays on the terminal.
-        "$BINARY_PATH" "${CMD_ARGS[@]}"
+        if "$BINARY_PATH" "${CMD_ARGS[@]}"; then
+            echo "[*] Miner stopped (exit code 0)" >&2
+        else
+            rc=$?
+            if [ "$rc" -eq 130 ]; then
+                echo "[*] Miner stopped (interrupted)" >&2
+            else
+                echo "[!] Miner exited with code $rc" >&2
+            fi
+            exit "$rc"
+        fi
     fi
 
     RESTART_COUNT=$((RESTART_COUNT + 1))

@@ -286,6 +286,34 @@ try {
     Remove-Item $tmpLift -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 6f. Miner exit codes are reported after launch (a silent instant exit used
+# to return to the prompt with zero feedback). Tests the REAL Start-Miner.
+Write-Host ''
+Write-Host '6f. Miner exit reporting:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'run.ps1')
+    $tmpExit = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-exit-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmpExit -Force | Out-Null
+    $fakeName = if ($IsWindows) { 'fail-miner.cmd' } else { 'fail-miner.sh' }
+    $fakeBin = Join-Path $tmpExit $fakeName
+    if ($IsWindows) {
+        Set-Content -LiteralPath $fakeBin -Value "@echo off`r`nexit /b 2`r`n" -NoNewline
+    } else {
+        Set-Content -LiteralPath $fakeBin -Value "#!/bin/sh`nexit 2`n" -NoNewline
+        chmod +x $fakeBin 2>$null
+    }
+    $flagMap = @{ daemon = '-d'; wallet = '-w'; threads = '-t' }
+    # 6>&1 captures the information stream (Write-Host) so the report line can
+    # be asserted — the feature IS the message, not just the exit code.
+    $out = Start-Miner -BinaryPath $fakeBin -DaemonUrl 'host:10100' -WalletAddress 'dero1test' -ThreadCount 2 -FlagMap $flagMap -ExtraArgs @() 6>&1 | Out-String
+    Assert-True '  nonzero miner exit is reported' ($out -match 'exited with code 2')
+} catch {
+    Assert-True '  miner exit reporting works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    Remove-Item $tmpExit -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
 Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow

@@ -397,4 +397,8 @@ Both suites fail with exit code 1 on any regression.
   `libgcc_s_seh-1.dll`, `libwinpthread-1.dll`, `libcrypto-3-x64.dll`,
   `libssl-3-x64.dll`). If the exe was lifted without its DLLs it cannot start.
   deromine now lifts the whole extracted folder so dependencies stay with the
-  binary — re-run the installer to update, then `deromine --miner=c`.
+  binary — re-run the installer to update, then `deromine --miner=c`. If a
+  miner still fails to start, deromine prints the exit code right after the
+  `[*] Command:` line (e.g. `[!] Miner exited with code 1`) instead of silently
+  returning to the prompt — `0xC0000135` means a missing DLL, `0xC000007B` a
+  bad image.

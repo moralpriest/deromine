@@ -33,6 +33,17 @@ function Start-Miner {
     }
     Write-Host "[*] Command: $BinaryPath $($argsList -join ' ')" -ForegroundColor DarkGray
     & $BinaryPath @argsList
+    # A miner that fails to start used to return to the prompt with zero
+    # feedback (missing DLLs, corrupt binary, wrong flags). Always report how
+    # the launch ended so a silent instant exit is never a black box. Ctrl+C
+    # (130 / 3221225786 = STATUS_CONTROL_C_EXIT) is a normal stop, not a crash.
+    if ($LASTEXITCODE -in @(130, 3221225786)) {
+        Write-Host "[*] Miner stopped (interrupted)" -ForegroundColor DarkGray
+    } elseif ($LASTEXITCODE -ne 0) {
+        Write-Host "[!] Miner exited with code $LASTEXITCODE" -ForegroundColor Yellow
+    } else {
+        Write-Host "[*] Miner stopped (exit code 0)" -ForegroundColor DarkGray
+    }
 }
 
 function Start-MinerAutoRestart {

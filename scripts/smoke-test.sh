@@ -224,6 +224,33 @@ else
     fail "empty LOGFILE does not block miner launch"
 fi
 
+# 6b. Miner exit codes are reported after launch (a silent instant exit used
+# to return to the prompt with zero feedback). Exercises the real loop shape.
+echo ""
+echo "6b. Miner exit reporting:"
+exit_out=$(bash -c 'set -euo pipefail
+BINARY_PATH=false
+CMD_ARGS=()
+LOGFILE=""
+while true; do
+    if [ -n "$LOGFILE" ]; then
+        :
+    else
+        "$BINARY_PATH" "${CMD_ARGS[@]}" || { rc=$?; echo "[!] Miner exited with code $rc"; exit "$rc"; }
+    fi
+    break
+done' 2>&1) || true
+if [[ "$exit_out" == *"Miner exited with code 1"* ]]; then
+    pass "foreground launch reports nonzero exit"
+else
+    fail "foreground launch reports nonzero exit ($exit_out)"
+fi
+if grep -q 'Miner exited with code' mine.sh; then
+    pass "mine.sh contains exit-code reporting"
+else
+    fail "mine.sh contains exit-code reporting"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "Passed: $PASS"
