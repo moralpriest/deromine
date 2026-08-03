@@ -22,14 +22,21 @@ function Get-PwshPlatform {
         }
     }
 
-    # Arch detection. PROCESSOR_ARCHITECTURE is a Windows-only env var, so on
-    # macOS/Linux we must ask the kernel. On Apple Silicon 'uname -m' reports
-    # arm64; Intel Macs report x86_64; ARM Linux reports aarch64/armv7l.
+    # Arch detection. On Windows, PROCESSOR_ARCHITECTURE (or
+    # PROCESSOR_ARCHITEW6432 for 32-bit PowerShell on 64-bit Windows) reports
+    # the architecture directly - no external commands needed. On macOS/Linux
+    # we ask the kernel: Apple Silicon 'uname -m' reports arm64; Intel Macs
+    # report x86_64; ARM Linux reports aarch64/armv7l.
     $procArch = $env:PROCESSOR_ARCHITECTURE
+    if ($procArch -eq 'x86' -and $env:PROCESSOR_ARCHITEW6432) { $procArch = $env:PROCESSOR_ARCHITEW6432 }
     if (-not $procArch) { $procArch = $env:PROCESSOR_ARCHITEW6432 }
     if ($procArch -match 'ARM64|arm64|aarch64') { $arch = 'aarch64' }
+    elseif ($procArch -match 'AMD64|amd64|x86_64|x64') { $arch = 'amd64' }
     elseif ($procArch -match 'ARM|arm') { $arch = 'arm' }
-    else {
+    elseif ($os -ne 'windows' -and (Get-Command uname -ErrorAction SilentlyContinue)) {
+        # No PROCESSOR_ARCHITECTURE (Linux/macOS) - ask the kernel. Guarded by
+        # Get-Command so a missing uname (e.g. bare Windows PowerShell) can
+        # never crash the launcher.
         $unameArch = (& uname -m 2>$null) -as [string]
         if ($unameArch -match 'aarch64|arm64') { $arch = 'aarch64' }
         elseif ($unameArch -match '^armv7') { $arch = 'arm' }

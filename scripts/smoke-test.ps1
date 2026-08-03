@@ -89,6 +89,70 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 4b. Windows arch mapping must never shell out to uname (regression: on
+#     Windows, PROCESSOR_ARCHITECTURE=AMD64 used to fall through to '& uname -m',
+#     crashing with "The term 'uname' is not recognized").
+Write-Host ''
+Write-Host '4b. Windows arch mapping:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'platform.ps1')
+    $savedProcArch = $env:PROCESSOR_ARCHITECTURE
+    $savedW6432 = $env:PROCESSOR_ARCHITEW6432
+    $savedPath = $env:PATH
+    $marker = Join-Path ([System.IO.Path]::GetTempPath()) ('uname-marker-' + [guid]::NewGuid().ToString('N'))
+    $fakeDir = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-fakebin-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $fakeDir -Force | Out-Null
+    $fakeUname = Join-Path $fakeDir 'uname'
+    if ($IsWindows) { $fakeUname += '.cmd' }
+    $fakeBody = if ($IsWindows) {
+        "@echo x86_64`r`necho MARKER>> `"$marker`"`r`n"
+    } else {
+        "#!/bin/sh`necho x86_64`necho MARKER>> `"$marker`"`n"
+    }
+    [System.IO.File]::WriteAllText($fakeUname, $fakeBody)
+    if (-not $IsWindows) { chmod +x $fakeUname 2>$null }
+    $env:PATH = "$fakeDir$([System.IO.Path]::PathSeparator)$env:PATH"
+
+    $env:PROCESSOR_ARCHITECTURE = 'AMD64'
+    $env:PROCESSOR_ARCHITEW6432 = $null
+    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    $p = Get-PwshPlatform
+    Assert-True "  PROC_ARCH=AMD64 -> amd64, uname NOT called (got '$($p.arch)')" ($p.arch -eq 'amd64' -and -not (Test-Path $marker))
+
+    $env:PROCESSOR_ARCHITECTURE = 'ARM64'
+    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    $p = Get-PwshPlatform
+    Assert-True "  PROC_ARCH=ARM64 -> aarch64, uname NOT called (got '$($p.arch)')" ($p.arch -eq 'aarch64' -and -not (Test-Path $marker))
+
+    # WOW64: 32-bit PowerShell on 64-bit Windows reports x86 + W6432.
+    $env:PROCESSOR_ARCHITECTURE = 'x86'
+    $env:PROCESSOR_ARCHITEW6432 = 'AMD64'
+    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    $p = Get-PwshPlatform
+    Assert-True "  WOW64 (x86 + W6432=AMD64) -> amd64, uname NOT called (got '$($p.arch)')" ($p.arch -eq 'amd64' -and -not (Test-Path $marker))
+
+    # Sanity: with no PROC_ARCH on unix, the uname fallback still works.
+    $env:PROCESSOR_ARCHITECTURE = $null
+    $env:PROCESSOR_ARCHITEW6432 = $null
+    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    $p = Get-PwshPlatform
+    $called = Test-Path $marker
+    if ($IsWindows) {
+        Assert-True '  Windows with no PROC_ARCH still resolves amd64 without uname' ($p.arch -eq 'amd64' -and -not $called)
+    } else {
+        Assert-True "  unix fallback uses uname when PROC_ARCH unset (got '$($p.arch)')" ($called -and $p.arch -match '^(amd64|aarch64)$')
+    }
+} catch {
+    Assert-True '  Windows arch mapping works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    $env:PROCESSOR_ARCHITECTURE = $savedProcArch
+    $env:PROCESSOR_ARCHITEW6432 = $savedW6432
+    $env:PATH = $savedPath
+    Remove-Item $fakeDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+}
+
 # 5. Binary name resolution
 Write-Host ''
 Write-Host '5. Binary name resolution:' -ForegroundColor Yellow
