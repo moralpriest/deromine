@@ -91,6 +91,14 @@ $expectedPsDefault = '$defaultWalletAddress = ''' + $expectedWallet + ''''
 Assert-True '  Bash uses integrated default wallet' ($mineShText -match [regex]::Escape($expectedBashDefault))
 Assert-True '  PowerShell uses integrated default wallet' ($minePsText -match [regex]::Escape($expectedPsDefault))
 
+# 2d. Installers expose safe PowerShell prerequisite handling.
+Write-Host ''
+Write-Host '2d. PowerShell prerequisite handling:' -ForegroundColor Yellow
+$installShText = Get-Content (Join-Path $projectDir 'install.sh') -Raw
+$installPsText = Get-Content (Join-Path $projectDir 'install.ps1') -Raw
+Assert-True '  bash installer handles missing pwsh safely' ($installShText -match 'install_pwsh_if_missing' -and $installShText -match 'DEROMINE_SKIP_PWSH' -and $installShText -match 'DEROMINE_AUTO_INSTALL_PWSH' -and $installShText -match '/dev/tty' -and $installShText -match 'packages\.microsoft\.com/config/fedora')
+Assert-True '  PowerShell installer handles missing pwsh safely' ($installPsText -match 'Install-PwshIfMissing' -and $installPsText -match 'Microsoft.PowerShell' -and $installPsText -match 'DEROMINE_AUTO_INSTALL_PWSH')
+
 # 3. Helper modules load without errors
 Write-Host ''
 Write-Host '3. Helper modules:' -ForegroundColor Yellow

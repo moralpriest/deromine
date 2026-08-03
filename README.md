@@ -75,12 +75,20 @@ Windows) and puts the launcher on PATH — `~/.local/bin/deromine`
 Termux). PATH is updated in the user registry on Windows or your shell profile
 (bash/zsh/fish) on Unix — open a new terminal afterwards. Re-run to update.
 Git is used when available; otherwise the source zip is downloaded, so git is
-not required.
+not required. Set `DEROMINE_SKIP_PWSH=1` when you explicitly want to keep the
+bash-only fallback.
 
 ### One-liner without PowerShell (Linux/macOS/Termux)
 
-If `pwsh` isn't installed, the bash installer covers the same ground with fewer
-dependencies:
+If `pwsh` isn't installed, the bash installer offers to install PowerShell 7
+using the native package manager (Ubuntu/Debian, Fedora/RHEL, macOS Homebrew,
+or Termux `pkg`) before continuing. On Windows, `install.ps1` offers the same
+choice through `winget`. Set `DEROMINE_AUTO_INSTALL_PWSH=1` to approve an
+unattended install, or `DEROMINE_SKIP_PWSH=1` to skip it. Without a TTY or
+explicit approval, the installer only prints the official manual install guide.
+
+If you prefer not to install PowerShell 7, the bash installer covers the same
+ground with fewer dependencies:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/moralpriest/deromine/main/install.sh | bash
@@ -104,7 +112,10 @@ ln -s "$PWD/deromine" ~/.local/bin/deromine   # optional: put it on PATH
 
 Requirements:
 
-- **PowerShell 7+ (`pwsh`)** for the full interactive menu and all CLI modes.
+- **PowerShell 7+ (`pwsh`)** for the full interactive menu and all CLI modes. The
+  installers attempt to add it automatically when missing; Windows uses `winget`,
+  while Unix uses the native package manager where supported.
+
 - Without `pwsh`, the `deromine` wrapper falls back to `mine.sh`
   (needs `bash`, `jq`, `curl`, `tar`/`unzip`) — fine for Termux and minimal
   systems. On macOS/BSD, benchmarking runs without GNU `timeout` (no cap).

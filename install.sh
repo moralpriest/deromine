@@ -26,6 +26,138 @@ if [ -n "${PREFIX:-}" ] && [ -d "$PREFIX/bin" ]; then
     is_termux=true
 fi
 
+run_privileged() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        echo "  [x] Root privileges are required to install PowerShell, but sudo was not found." >&2
+        return 1
+    fi
+}
+
+show_pwsh_install_guide() {
+    case "$(uname -s)" in
+        Darwin*)
+            echo "      brew install --cask powershell" >&2 ;;
+        *)
+            if $is_termux; then
+                echo "      pkg install -y powershell" >&2
+            elif command -v apt-get >/dev/null 2>&1; then
+                echo "      Install PowerShell from the Microsoft apt repository:" >&2
+                echo "      https://learn.microsoft.com/powershell/scripting/install/install-ubuntu" >&2
+            elif command -v dnf >/dev/null 2>&1; then
+                echo "      Install PowerShell from the Microsoft rpm repository:" >&2
+                echo "      https://learn.microsoft.com/powershell/scripting/install/install-fedora" >&2
+            fi
+            ;;
+    esac
+    echo "      https://learn.microsoft.com/powershell/scripting/install/installing-powershell" >&2
+}
+
+install_pwsh_if_missing() {
+    command -v pwsh >/dev/null 2>&1 && return 0
+    [ "${DEROMINE_SKIP_PWSH:-0}" = "1" ] && {
+        echo "  [!] Skipping automatic PowerShell 7 install (DEROMINE_SKIP_PWSH=1)." >&2
+        return 1
+    }
+
+    if [ "${DEROMINE_AUTO_INSTALL_PWSH:-0}" != "1" ]; then
+        if [ -t 1 ] && [ -r /dev/tty ]; then
+            printf '  PowerShell 7 (pwsh) is missing. Install it now? [Y/n] ' >&2
+            read -r answer </dev/tty || answer='n'
+            case "$answer" in
+                n|N|no|NO) return 1 ;;
+            esac
+        else
+            echo "  [!] PowerShell 7 is missing; not installing automatically without a TTY." >&2
+            echo "      Set DEROMINE_AUTO_INSTALL_PWSH=1 to approve unattended installation." >&2
+            show_pwsh_install_guide
+            return 1
+        fi
+    fi
+
+    echo "  [*] PowerShell 7 (pwsh) is missing; attempting to install it..."
+    if $is_termux; then
+        pkg install -y powershell || return 1
+    elif [ "$(uname -s)" = "Darwin" ]; then
+        command -v brew >/dev/null 2>&1 || {
+            echo "  [!] Homebrew is required on macOS: https://brew.sh" >&2
+            return 1
+        }
+        brew install --cask powershell || return 1
+    elif command -v apt-get >/dev/null 2>&1; then
+        # Prefer an existing package; otherwise register Microsoft's official
+        # repository for Debian/Ubuntu before installing.
+        if command -v apt-cache >/dev/null 2>&1 && apt-cache show powershell >/dev/null 2>&1; then
+            run_privileged apt-get update || return 1
+            run_privileged apt-get install -y powershell || return 1
+        elif [ -r /etc/os-release ] && command -v curl >/dev/null 2>&1; then
+            . /etc/os-release
+            case "$ID" in
+                ubuntu|debian)
+                    repo_pkg="$(mktemp "${TMPDIR:-/tmp}/packages-microsoft-prod.XXXXXX.deb")"
+                    curl -fsSL "https://packages.microsoft.com/config/$ID/$VERSION_ID/packages-microsoft-prod.deb" -o "$repo_pkg" || { rm -f "$repo_pkg"; return 1; }
+                    run_privileged dpkg -i "$repo_pkg" || { rm -f "$repo_pkg"; return 1; }
+                    rm -f "$repo_pkg"
+                    run_privileged apt-get update || return 1
+                    run_privileged apt-get install -y powershell || return 1
+                    ;;
+                *)
+                    echo "  [!] Automatic apt setup is supported for Ubuntu/Debian only." >&2
+                    return 1
+                    ;;
+            esac
+        else
+            return 1
+        fi
+    elif command -v dnf >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1; then
+        if ! dnf info powershell >/dev/null 2>&1; then
+            if [ -r /etc/os-release ]; then
+                . /etc/os-release
+                case "$ID" in
+                    fedora)
+                        if [[ "$VERSION_ID" =~ ^[0-9]+$ ]]; then
+                            repo_url="https://packages.microsoft.com/config/fedora/$VERSION_ID/packages-microsoft-prod.rpm"
+                        else
+                            repo_url=""
+                        fi
+                        ;;
+                    rhel|centos|rocky|almalinux)
+                        repo_major="${VERSION_ID%%.*}"
+                        if [[ "$repo_major" =~ ^[0-9]+$ ]]; then
+                            repo_url="https://packages.microsoft.com/config/rhel/$repo_major/packages-microsoft-prod.rpm"
+                        else
+                            repo_url=""
+                        fi
+                        ;;
+                    *)
+                        repo_url="" ;;
+                esac
+                if [ -n "$repo_url" ]; then
+                    run_privileged dnf install -y "$repo_url" || return 1
+                fi
+            fi
+        fi
+        dnf info powershell >/dev/null 2>&1 || {
+            echo "  [!] PowerShell is not available in the configured dnf repositories." >&2
+            return 1
+        }
+        run_privileged dnf install -y powershell || return 1
+    elif command -v snap >/dev/null 2>&1; then
+        run_privileged snap install powershell --classic || return 1
+    else
+        return 1
+    fi
+    command -v pwsh >/dev/null 2>&1
+}
+
+if ! install_pwsh_if_missing; then
+    echo "  [!] PowerShell 7 was not installed; the bash fallback remains available." >&2
+    show_pwsh_install_guide
+fi
+
 mkdir -p "$data_home" "$bin_home"
 
 if [ -d "$install_dir/.git" ]; then

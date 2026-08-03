@@ -62,6 +62,51 @@ if (-not $BinDir) {
 
 $isTermux = -not $IsWin -and $env:PREFIX -and (Test-Path (Join-Path $env:PREFIX 'bin'))
 
+function Install-PwshIfMissing {
+    $existing = Get-Command pwsh -ErrorAction SilentlyContinue
+    if ($existing) { return $true }
+    if ($env:DEROMINE_SKIP_PWSH -eq '1') {
+        Write-Host '  [!] Skipping automatic PowerShell 7 install (DEROMINE_SKIP_PWSH=1).' -ForegroundColor Yellow
+        return $false
+    }
+    if (-not $IsWin) {
+        # install.ps1 itself requires pwsh on Unix, so this path is mainly a
+        # guard for unusual embedded callers; install.sh handles Unix setup.
+        Write-Host '  [!] PowerShell 7 is missing. Run install.sh or install it from:' -ForegroundColor Yellow
+        Write-Host '      https://learn.microsoft.com/powershell/scripting/install/installing-powershell' -ForegroundColor DarkCyan
+        return $false
+    }
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        Write-Host '  [!] winget is unavailable; install PowerShell 7 from:' -ForegroundColor Yellow
+        Write-Host '      https://learn.microsoft.com/powershell/scripting/install/installing-powershell' -ForegroundColor DarkCyan
+        return $false
+    }
+    if ($env:DEROMINE_AUTO_INSTALL_PWSH -ne '1') {
+        try {
+            $answer = Read-Host '  PowerShell 7 (pwsh) is missing. Install it with winget now? [Y/n]'
+        } catch {
+            $answer = 'n'
+        }
+        if ($answer -match '^(n|no)$') {
+            Write-Host '  [!] PowerShell 7 install skipped (set DEROMINE_AUTO_INSTALL_PWSH=1 for unattended approval).' -ForegroundColor Yellow
+            return $false
+        }
+    }
+    Write-Host '  [*] PowerShell 7 (pwsh) is missing; installing with winget...' -ForegroundColor Cyan
+    & $winget.Source install --id Microsoft.PowerShell --source winget --exact --silent --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [!] PowerShell 7 installation failed (winget exit $LASTEXITCODE)." -ForegroundColor Yellow
+        return $false
+    }
+    Write-Host '  [*] PowerShell 7 installation completed. Open a new terminal to use pwsh.' -ForegroundColor Green
+    return $true
+}
+
+# Windows includes PowerShell 5.1, but the full runner requires PowerShell 7.
+# Install it before cloning so the post-install instructions are actionable.
+Install-PwshIfMissing | Out-Null
+
 Write-Host ''
 Write-Host '  deromine - installer' -ForegroundColor White
 Write-Host ''

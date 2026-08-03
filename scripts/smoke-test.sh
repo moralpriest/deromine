@@ -60,6 +60,12 @@ else
     fail "both runners use the integrated default wallet"
 fi
 
+# 2d. Installers expose safe PowerShell prerequisite handling.
+echo ""
+echo "2d. PowerShell prerequisite handling:"
+if grep -q 'install_pwsh_if_missing' install.sh && grep -q 'DEROMINE_SKIP_PWSH' install.sh && grep -q 'DEROMINE_AUTO_INSTALL_PWSH' install.sh && grep -q '/dev/tty' install.sh && grep -q 'packages.microsoft.com/config/fedora' install.sh; then pass "bash installer handles missing pwsh safely"; else fail "bash installer handles missing pwsh safely"; fi
+if grep -q 'Install-PwshIfMissing' install.ps1 && grep -q 'Microsoft.PowerShell' install.ps1; then pass "PowerShell installer handles missing pwsh"; else fail "PowerShell installer handles missing pwsh"; fi
+
 echo ""
 echo "3. Version flag:"
 ver=$(./deromine --version 2>&1 | head -1)
