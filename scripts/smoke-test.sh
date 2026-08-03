@@ -187,31 +187,42 @@ if [ -f "$MINER_DIR/config.json" ]; then pass "config.json lifted too"; else fai
 if [ ! -d "$tmplift/cache/nested" ]; then pass "nested dir removed after lift"; else fail "nested dir removed after lift"; fi
 rm -rf "$tmplift"
 
-# 5f. Windows Vulkan detection probes for a registered ICD instead of
-# assuming every Windows box has Vulkan (go-gpu must not be listed on
-# WARP-only or no-driver machines). Extracts the REAL has_vulkan_gpu.
+# 5f. Windows Vulkan detection is FUNCTIONAL: a registered ICD is not proof a
+# driver works (registered-but-broken drivers must still hide go-gpu). The
+# REAL has_vulkan_gpu delegates to a fake powershell.exe (every Windows box
+# ships it) that runs the loader probe; only falls back to the ICD registry
+# key if PowerShell is missing. Extracts the REAL has_vulkan_gpu.
 echo ""
 echo "5f. Windows Vulkan probe:"
 tmpvulkan=$(mktemp -d)
-mkdir -p "$tmpvulkan/empty" "$tmpvulkan/bin"
-printf '#!/bin/sh\nexit 0\n' > "$tmpvulkan/bin/reg"
-chmod +x "$tmpvulkan/bin/reg"
-eval "$(sed -n '/^has_vulkan_gpu()/,/^}/p' mine.sh)"
+mkdir -p "$tmpvulkan/empty" "$tmpvulkan/bin" "$tmpvulkan/nops"
+# fake powershell.exe: exit 0 = loader probe found >=1 Vulkan device
+printf '#!/bin/sh\nexit 0\n' > "$tmpvulkan/bin/powershell.exe"
+chmod +x "$tmpvulkan/bin/powershell.exe"
+# fake reg only (no powershell): best-effort ICD key fallback
+printf '#!/bin/sh\nexit 0\n' > "$tmpvulkan/nops/reg"
+chmod +x "$tmpvulkan/nops/reg"
+eval "$(sed -n '/^has_vulkan_gpu()/,/^# end: has_vulkan_gpu/p' mine.sh | sed '$d')"
 if PATH="$tmpvulkan/empty" OS=windows has_vulkan_gpu; then
-    fail "windows without Vulkan ICD is hidden"
+    fail "windows with no Vulkan runtime is hidden"
 else
-    pass "windows without Vulkan ICD is hidden"
+    pass "windows with no Vulkan runtime is hidden"
 fi
 if PATH="$tmpvulkan/bin" OS=windows has_vulkan_gpu; then
-    pass "windows with Vulkan ICD is listed"
+    pass "functional probe: Vulkan device found -> listed"
 else
-    fail "windows with Vulkan ICD is listed"
+    fail "functional probe: Vulkan device found -> listed"
+fi
+if PATH="$tmpvulkan/nops" OS=windows has_vulkan_gpu; then
+    pass "no powershell -> ICD key fallback can list"
+else
+    fail "no powershell -> ICD key fallback can list"
 fi
 rm -rf "$tmpvulkan"
 
-# 5g. Launch-failure memory: a miner that fails its startup gate twice in a
-# row is hidden from the list until a launch actually succeeds. Extracts the
-# REAL helpers from mine.sh.
+# 5g. Launch-failure memory: a miner that fails its startup gate ONCE (fast
+# nonzero exit) is hidden from the list until a launch actually succeeds.
+# Extracts the REAL helpers from mine.sh.
 echo ""
 echo "5g. Launch-failure memory:"
 tmpmem=$(mktemp -d)
@@ -220,9 +231,7 @@ eval "$(sed -n '/^mark_miner_launch_outcome()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^miner_fails_on_host()/,/^}/p' mine.sh)"
 if miner_fails_on_host "$tmpmem" go-gpu; then fail "no failures recorded -> listed"; else pass "no failures recorded -> listed"; fi
 mark_miner_launch_outcome "$tmpmem" go-gpu 1 2
-if miner_fails_on_host "$tmpmem" go-gpu; then fail "one fast failure -> still listed"; else pass "one fast failure -> still listed"; fi
-mark_miner_launch_outcome "$tmpmem" go-gpu 1 2
-if miner_fails_on_host "$tmpmem" go-gpu; then pass "two fast failures -> hidden"; else fail "two fast failures -> hidden"; fi
+if miner_fails_on_host "$tmpmem" go-gpu; then pass "one confirmed fast failure -> hidden"; else fail "one confirmed fast failure -> hidden"; fi
 mark_miner_launch_outcome "$tmpmem" go-gpu 0 30
 if miner_fails_on_host "$tmpmem" go-gpu; then fail "successful run resets -> listed again"; else pass "successful run resets -> listed again"; fi
 mark_miner_launch_outcome "$tmpmem" go-gpu 130 3

@@ -337,8 +337,8 @@ change, without keeping manual notes. Results are compared by miner id.
    `--auto-restart` wraps it in a restart loop (max restarts, delay). Fast
    startup failures (a nonzero exit within ~10s — missing DLLs, broken GPU
    driver, incompatible build) are remembered per miner in `bin/<id>/.fails`;
-   after two in a row the miner is hidden from the list until a launch
-   actually succeeds. `--miner=<id>` still force-runs a hidden miner.
+   after one confirmed failure the miner is hidden from the list until a
+   launch actually succeeds. `--miner=<id>` still force-runs a hidden miner.
 8. **Benchmark mode** runs each supported miner for a fixed window, parses the
    reported hashrate, and prints a comparison table.
 
@@ -376,19 +376,25 @@ Both suites fail with exit code 1 on any regression.
   adapters on Windows (`Win32_VideoController`), so they are hidden when no
   NVIDIA GPU is present. Vulkan miners (go-gpu) do **not** require an NVIDIA
   card — any Intel/AMD integrated GPU with a working Vulkan driver qualifies.
-  On Windows, deromine checks for a registered Vulkan ICD under
-  `HKLM\SOFTWARE\Khronos\Vulkan\Drivers`, so go-gpu is hidden on machines with
-  no Vulkan driver (WARP-only renderers, older iGPU drivers, VMs). If go-gpu is
-  listed but the miner's own startup self-test refuses to mine on your
-  GPU/driver, that is the miner refusing an unusable device (it exits 1 with an
-  explanation) — deromine will remember the failure and hide it from the list
-  after two fast failed launches; use a CPU miner instead.
+  On Windows, deromine does a **functional** probe: it asks the actual Vulkan
+  loader (`vulkan-1.dll`) to create an instance and enumerate physical devices
+  (via PowerShell on both the PS and bash paths), so go-gpu is hidden on
+  machines with no usable Vulkan runtime — WARP-only renderers, older iGPU
+  drivers, VMs, and machines whose Vulkan driver is registered but broken (the
+  Intel Iris Xe case where the miner fell back to DX12 and its self-test
+  refused to mine). If go-gpu is listed but the miner's own startup self-test
+  still refuses to mine on your GPU/driver, that is the miner refusing an
+  unusable device (it exits 1 with an explanation) — deromine will remember
+  the failure and hide it from the list after one fast failed launch; use a CPU
+  miner instead.
 - **A miner disappears from the list after failing to start**: deromine hides a
-  miner after it exits nonzero within ~10s of launch twice in a row on this
-  host (the classic "listed but broken on this hardware" case — missing DLLs,
-  a broken GPU driver, an incompatible build). Force-run it anyway with
-  `deromine --miner=<id>`; it reappears automatically once a launch actually
-  succeeds. To reset manually, delete `bin/<id>/.fails`.
+  miner after it exits nonzero within ~10s of launch once on this host (the
+  classic "listed but broken on this hardware" case — missing DLLs, a broken
+  GPU driver, an incompatible build; static checks can't see a
+  registered-but-broken driver, so one confirmed failure is treated as proof
+  this host can't run it). Force-run it anyway with `deromine --miner=<id>`;
+  it reappears automatically once a launch actually succeeds. To reset
+  manually, delete `bin/<id>/.fails`.
 - **Astronv fails to start**: it needs NVIDIA drivers (`libnvidia-ml.so.1`) and is
   Linux amd64 only.
 - **derohe is missing from the list on Termux/Android**: derohe's arm64 release

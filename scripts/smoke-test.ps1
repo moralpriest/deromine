@@ -153,32 +153,36 @@ try {
     Remove-Item $marker -Force -ErrorAction SilentlyContinue
 }
 
-# 4c. Windows Vulkan detection probes for a registered ICD instead of
-# assuming every Windows box has Vulkan (go-gpu must not be listed on
-# WARP-only or no-driver machines). Tests the REAL Test-WindowsVulkanDriver
-# with a fake registry key.
+# 4c. Windows Vulkan detection is FUNCTIONAL: a registered ICD is not proof
+# a driver works (registered-but-broken drivers — e.g. Intel Iris Xe where
+# wgpu falls back to DX12 — must still hide go-gpu). Test-WindowsVulkanWorks
+# asks the Vulkan loader (vulkan-1.dll) to create an instance and enumerate
+# physical devices. On Unix there is no Vulkan runtime, so it must degrade
+# gracefully to $false.
 Write-Host ''
 Write-Host '4c. Windows Vulkan probe:' -ForegroundColor Yellow
-$testKey = 'HKCU:\SOFTWARE\deromine-vulkan-test'
 try {
     . (Join-Path $libDir 'platform.ps1')
     if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
-        Remove-Item $testKey -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -Path $testKey -Force | Out-Null
-        Assert-True '  no ICD registered -> no Vulkan' (-not (Test-WindowsVulkanDriver -RegKey $testKey))
-        New-ItemProperty -Path $testKey -Name 'C:\fake\igvk64.json' -PropertyType DWord -Value 1 -Force | Out-Null
-        Assert-True '  ICD json registered -> Vulkan' (Test-WindowsVulkanDriver -RegKey $testKey)
+        # Real loader probe: must return a boolean without throwing (true only
+        # if a working Vulkan runtime with >=1 GPU is present).
+        $r = Test-WindowsVulkanWorks
+        Assert-True "  functional probe returns bool (got '$r')" ($r -is [bool])
+        # Regression: Add-Type is compiled once per session; calling again
+        # must NOT throw (duplicate-type) and must still return a bool.
+        $r2 = Test-WindowsVulkanWorks
+        Assert-True '  second probe call still returns bool (no dup-type error)' ($r2 -is [bool])
     } else {
-        # The registry provider is Windows-only; on Unix assert graceful
-        # degradation (no probed Vulkan -> $false). The bash suite covers the
-        # ICD present/absent logic functionally.
-        Assert-True '  no registry on unix -> no Vulkan' (-not (Test-WindowsVulkanDriver))
+        Assert-True '  no Vulkan runtime on unix -> no Vulkan' (-not (Test-WindowsVulkanWorks))
+        Assert-True '  repeated call on unix still returns false' (-not (Test-WindowsVulkanWorks))
     }
+    # The probe must be a REAL loader call (vkCreateInstance + device
+    # enumeration), not a registry-presence check.
+    $platText = Get-Content (Join-Path $libDir 'platform.ps1') -Raw
+    Assert-True '  probe calls vkCreateInstance / vkEnumeratePhysicalDevices' ($platText -match 'vkCreateInstance' -and $platText -match 'vkEnumeratePhysicalDevices')
 } catch {
     Assert-True '  Windows Vulkan probe works' $false
     Write-Host "    Error: $_" -ForegroundColor DarkRed
-} finally {
-    Remove-Item $testKey -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # 5. Binary name resolution
@@ -346,8 +350,10 @@ try {
     Remove-Item $tmpExit -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 6g. Launch-failure memory: a miner that fails its startup gate twice in a
-# row is hidden from the list until a launch actually succeeds. Tests the REAL
+# 6g. Launch-failure memory: a miner that fails its startup gate ONCE (fast
+# nonzero exit) is hidden from the list until a launch actually succeeds —
+# static checks can't see a registered-but-broken driver, so one confirmed
+# failure is treated as proof this host can't run it. Tests the REAL
 # Mark-MinerLaunchOutcome / Test-MinerFailsOnHost from download.ps1.
 Write-Host ''
 Write-Host '6g. Launch-failure memory:' -ForegroundColor Yellow
@@ -357,9 +363,7 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $tmpMem 'go-gpu') -Force | Out-Null
     Assert-True '  no failures recorded -> listed' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
     Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 2
-    Assert-True '  one fast failure -> still listed' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
-    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 2
-    Assert-True '  two fast failures -> hidden' (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu')
+    Assert-True '  one confirmed fast failure -> hidden' (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu')
     Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 0 -ElapsedSec 30
     Assert-True '  successful run resets -> listed again' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
     Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 130 -ElapsedSec 3

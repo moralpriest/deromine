@@ -67,22 +67,104 @@ function Test-HasNvidiaGpu {
     return $false
 }
 
-# A Vulkan-capable GPU driver is present if any ICD JSON is registered under
-# the Khronos Vulkan runtime key. Vulkan does NOT require an NVIDIA card -
-# Intel/AMD integrated GPUs with a working Vulkan driver qualify - but a
-# machine with no registered ICD (older iGPU drivers, WARP-only renderers,
-# VMs) cannot run Vulkan miners like go-gpu and must not be listed.
-function Test-WindowsVulkanDriver {
-    param([string]$RegKey = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers')
+# A Vulkan-capable GPU is present only if the Vulkan LOADER actually works:
+# a Vulkan instance can be created and at least one physical device is
+# enumerated. Registering an ICD JSON under the Khronos key is NOT proof a
+# driver works — a registered-but-broken driver (e.g. an Intel Iris Xe box
+# where wgpu silently fell back to DX12) still lists go-gpu but cannot mine.
+# This P/Invoke probe asks vulkan-1.dll (the official Windows Vulkan runtime)
+# directly: create an instance, enumerate physical devices, require >0.
+function Test-WindowsVulkanWorks {
+    # Not Windows (vulkan-1.dll / SystemRoot don't exist): never report Vulkan.
+    if (-not $env:SystemRoot -or (-not $IsWindows -and $PSVersionTable.PSEdition -ne 'Desktop')) {
+        return $false
+    }
+    if (-not (Test-Path (Join-Path $env:SystemRoot 'System32\vulkan-1.dll'))) { return $false }
+    # Compile the C# once per session: Add-Type with an existing type name
+    # throws, and this probe can run several times in one run (list render +
+    # --miner gate + benchmark) — a second failure would wrongly hide go-gpu
+    # even on machines with perfectly working Vulkan.
     try {
-        $drv = Get-ItemProperty -Path $RegKey -ErrorAction SilentlyContinue
-        if ($drv) {
-            foreach ($prop in $drv.PSObject.Properties) {
-                if ($prop.Name -like '*.json') { return $true }
+        if (-not ('DeromineVulkanProbe' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class DeromineVulkanProbe
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct VkApplicationInfo
+    {
+        public int sType;               // VK_STRUCTURE_TYPE_APPLICATION_INFO
+        public IntPtr pNext;
+        public IntPtr pApplicationName;
+        public uint applicationVersion;
+        public IntPtr pEngineName;
+        public uint engineVersion;
+        public uint apiVersion;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct VkInstanceCreateInfo
+    {
+        public int sType;               // VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
+        public IntPtr pNext;
+        public uint flags;
+        public IntPtr pApplicationInfo;
+        public uint enabledLayerCount;
+        public IntPtr ppEnabledLayerNames;
+        public uint enabledExtensionCount;
+        public IntPtr ppEnabledExtensionNames;
+    }
+
+    [DllImport("vulkan-1.dll", CallingConvention = CallingConvention.Winapi)]
+    private static extern int vkCreateInstance(ref VkInstanceCreateInfo pCreateInfo, IntPtr pAllocator, out IntPtr pInstance);
+
+    [DllImport("vulkan-1.dll", CallingConvention = CallingConvention.Winapi)]
+    private static extern void vkDestroyInstance(IntPtr instance, IntPtr pAllocator);
+
+    [DllImport("vulkan-1.dll", CallingConvention = CallingConvention.Winapi)]
+    private static extern int vkEnumeratePhysicalDevices(IntPtr instance, ref uint pPhysicalDeviceCount, IntPtr pPhysicalDevices);
+
+    public static bool VulkanUsable()
+    {
+        VkInstanceCreateInfo ci = new VkInstanceCreateInfo();
+        ci.sType = 1; // VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
+        // A minimal application info is safer than NULL against finicky
+        // drivers (NULL is spec-legal but some old ICDs expect it populated).
+        VkApplicationInfo app = new VkApplicationInfo();
+        app.sType = 0; // VK_STRUCTURE_TYPE_APPLICATION_INFO
+        app.apiVersion = (1 << 22) | (0 << 12) | 0; // VK_MAKE_API_VERSION(0,1,0,0)
+        ci.pApplicationInfo = System.Runtime.InteropServices.Marshal.AllocHGlobal(Marshal.SizeOf(app));
+        try
+        {
+            Marshal.StructureToPtr(app, ci.pApplicationInfo, false);
+            IntPtr instance;
+            int result = vkCreateInstance(ref ci, IntPtr.Zero, out instance);
+            if (result != 0) { return false; } // VK_ERROR_INCOMPATIBLE_DRIVER etc.
+            try
+            {
+                uint count = 0;
+                if (vkEnumeratePhysicalDevices(instance, ref count, IntPtr.Zero) != 0) { return false; }
+                return count > 0;
+            }
+            finally
+            {
+                vkDestroyInstance(instance, IntPtr.Zero);
             }
         }
-    } catch {}
-    return $false
+        finally
+        {
+            Marshal.FreeHGlobal(ci.pApplicationInfo);
+        }
+    }
+}
+'@ -ErrorAction Stop
+        }
+        return [DeromineVulkanProbe]::VulkanUsable()
+    } catch {
+        return $false
+    }
 }
 
 function Test-HasVulkanGpu {
@@ -106,7 +188,8 @@ function Test-HasVulkanGpu {
                     if ($LASTEXITCODE -eq 0) { return $true }
                 } catch {}
             }
-            return (Test-WindowsVulkanDriver)
+            # Registered ICD is not proof of a working driver — ask the loader.
+            return (Test-WindowsVulkanWorks)
         }
         default   { return $false }
     }

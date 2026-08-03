@@ -192,9 +192,12 @@ function Move-LiftedFiles {
 # `--miner=<id>` still force-runs a hidden miner.
 
 # Thresholds: an exit within 10s is a startup failure (a working miner runs
-# for hours); 2 consecutive failures hides the miner.
+# for hours); ONE confirmed failure hides the miner. Static hardware checks
+# can't see a registered-but-broken driver (the Intel Iris Xe DX12-fallback
+# case), so a single fast nonzero exit is treated as proof this host can't
+# run it — it is hidden until a launch actually succeeds.
 $script:FastFailSecs  = 10
-$script:FailsToHide    = 2
+$script:FailsToHide    = 1
 
 function Get-MinerFailsPath {
     param([string]$BinDir, [string]$MinerId)

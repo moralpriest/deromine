@@ -283,10 +283,10 @@ lift_binary() {
 # ── Launch-failure memory ──
 # A miner that can't run on this host (missing DLLs, broken GPU driver, broken
 # arm64 build) used to be listed forever and fail on every attempt. deromine
-# remembers consecutive fast nonzero exits in a per-miner bin/<id>/.fails file
-# and hides such miners from the list until a launch actually succeeds.
-# --miner=<id> still force-runs a hidden miner. A fast exit = within 10s;
-# 2 consecutive failures hides the miner.
+# remembers fast nonzero exits in a per-miner bin/<id>/.fails file and hides
+# such miners from the list until a launch actually succeeds. Static checks
+# can't see a registered-but-broken driver, so ONE confirmed fast failure
+# (within 10s) hides the miner. --miner=<id> still force-runs a hidden miner.
 mark_miner_launch_outcome() {
     local bindir="$1" mid="$2" rc="$3" elapsed="$4" f count
     [ -d "$bindir/$mid" ] || return 0
@@ -308,7 +308,7 @@ miner_fails_on_host() {
     f="$bindir/$mid/.fails"
     [ -f "$f" ] || return 1
     count=$(cat "$f" 2>/dev/null || echo 0)
-    [ "$count" -ge 2 ]
+    [ "$count" -ge 1 ]
 }
 
 # Download, extract, lift (rename to the canonical cache name), verify, and
@@ -359,9 +359,59 @@ has_vulkan_gpu() {
         ls /dev/dri/card* >/dev/null 2>&1 && return 0
     fi
     if [ "$OS" = "windows" ]; then
-        # Vulkan does NOT require NVIDIA (Intel/AMD iGPUs qualify) but a Vulkan
-        # ICD must be registered - probe instead of assuming every Windows box
-        # has one (older iGPU drivers, WARP-only renderers, VMs do not).
+        # Vulkan does NOT require NVIDIA (Intel/AMD iGPUs qualify), but a
+        # REGISTERED ICD is not proof a driver works - a registered-but-broken
+        # driver (Intel Iris Xe wgpu-DX12-fallback case) must still hide
+        # go-gpu. Every Windows box ships Windows PowerShell, so delegate the
+        # same functional loader probe the PS path uses (create a Vulkan
+        # instance, enumerate physical devices, require >0). Only fall back to
+        # the ICD registration key if PowerShell itself is somehow missing.
+        if command -v powershell.exe >/dev/null 2>&1; then
+            # Run via a temp script with -File: stdin (-Command -) is not
+            # reliably multi-line across PS versions.
+            local vkprobe vkrc
+            vkprobe="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/deromine-vkprobe.$$.ps1")"
+            cat > "$vkprobe" <<'VKPROBE'
+try {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class DeromineVkProbe {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Ci {
+        public int sType; public IntPtr pNext; public uint flags;
+        public IntPtr pApp; public uint lc; public IntPtr pl;
+        public uint ec; public IntPtr pe;
+    }
+    [DllImport("vulkan-1.dll", CallingConvention = CallingConvention.Winapi)]
+    public static extern int vkCreateInstance(ref Ci ci, IntPtr a, out IntPtr i);
+    [DllImport("vulkan-1.dll", CallingConvention = CallingConvention.Winapi)]
+    public static extern void vkDestroyInstance(IntPtr i, IntPtr a);
+    [DllImport("vulkan-1.dll", CallingConvention = CallingConvention.Winapi)]
+    public static extern int vkEnumeratePhysicalDevices(IntPtr i, ref uint c, IntPtr d);
+    public static bool Usable() {
+        Ci ci = new Ci(); ci.sType = 1; IntPtr inst;
+        if (vkCreateInstance(ref ci, IntPtr.Zero, out inst) != 0) { return false; }
+        uint c = 0;
+        try {
+            if (vkEnumeratePhysicalDevices(inst, ref c, IntPtr.Zero) != 0) { return false; }
+            return c > 0;
+        } finally { vkDestroyInstance(inst, IntPtr.Zero); }
+    }
+}
+'@ -ErrorAction Stop
+    if ([DeromineVkProbe]::Usable()) { exit 0 } else { exit 1 }
+}
+catch { exit 1 }
+VKPROBE
+            # Guard with ||: the probe exits 1 on machines WITHOUT Vulkan (its
+            # normal result) and an unguarded nonzero would trip `set -e`.
+            vkrc=1
+            powershell.exe -NoProfile -NonInteractive -File "$vkprobe" >/dev/null 2>&1 && vkrc=0
+            rm -f "$vkprobe"
+            if [ "$vkrc" -eq 0 ]; then return 0; fi
+            return 1
+        fi
         if command -v reg >/dev/null 2>&1 && reg query "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" >/dev/null 2>&1; then
             return 0
         fi
@@ -370,6 +420,7 @@ has_vulkan_gpu() {
     if [ "$OS" = "macos" ]; then return 0; fi
     return 1
 }
+# end: has_vulkan_gpu
 
 tcp_open() {
     local port="$1"
