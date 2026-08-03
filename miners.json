@@ -109,6 +109,7 @@
       "risk_note": "Open source",
       "requires": ["vulkan-gpu"],
       "type": "gpu",
+      "startup_gate": true,
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Go-GPU-Miner-amd64-*.tar.gz" },
         { "os": "linux",   "arch": "aarch64","pattern": "Dirtybird-Go-GPU-Miner-arm64-*.tar.gz" },

@@ -184,18 +184,22 @@ function Move-LiftedFiles {
     Remove-Item $SourceDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# ── Launch-failure memory ──
+# ── Launch-failure memory + proven-on-host ──
 # A miner that can't run on this host (missing DLLs, broken GPU driver, broken
 # arm64 build) used to be listed forever and fail on every attempt. deromine
-# now remembers consecutive fast nonzero exits in a per-miner `bin/<id>/.fails`
-# file and hides such miners from the list until a launch actually succeeds.
+# now remembers per-miner launch outcomes in `bin/<id>/`:
+#   .fails — fast nonzero exits (within 10s), ONE confirmed failure hides it.
+#   .ok    — a launch that PROVED the miner can run here (exit 0, or it ran
+#            long enough to get past startup, or the user stopped it with
+#            Ctrl+C). Miners marked `startup_gate` in the catalog (e.g. go-gpu
+#            with its self-test that refuses broken GPUs) are only LISTED once
+#            .ok exists — a registered-but-broken driver can pass every static
+#            probe yet still refuse to mine, so the only reliable proof is a
+#            real successful launch on this host.
 # `--miner=<id>` still force-runs a hidden miner.
 
 # Thresholds: an exit within 10s is a startup failure (a working miner runs
-# for hours); ONE confirmed failure hides the miner. Static hardware checks
-# can't see a registered-but-broken driver (the Intel Iris Xe DX12-fallback
-# case), so a single fast nonzero exit is treated as proof this host can't
-# run it — it is hidden until a launch actually succeeds.
+# for hours); ONE confirmed failure hides the miner.
 $script:FastFailSecs  = 10
 $script:FailsToHide    = 1
 
@@ -204,19 +208,28 @@ function Get-MinerFailsPath {
     return (Join-Path (Join-Path $BinDir $MinerId) '.fails')
 }
 
+function Get-MinerOkPath {
+    param([string]$BinDir, [string]$MinerId)
+    return (Join-Path (Join-Path $BinDir $MinerId) '.ok')
+}
+
 # Record the outcome of a miner launch. Successful runs, slow exits, and
-# Ctrl+C clears the memory; fast nonzero exits increment it.
+# Ctrl+C clear the failure memory AND write the .ok proven marker; fast
+# nonzero exits increment the failure counter and clear .ok.
 function Mark-MinerLaunchOutcome {
     param([string]$BinDir, [string]$MinerId, [int]$ExitCode, [int]$ElapsedSec)
     $minerDir = Join-Path $BinDir $MinerId
     if (-not (Test-Path $minerDir)) { return }
     $failsPath = Get-MinerFailsPath $BinDir $MinerId
+    $okPath = Get-MinerOkPath $BinDir $MinerId
     # Ctrl+C surfaces as 130 or the NTSTATUS 0xC000013A (3221225786 unsigned /
     # -1073741510 signed, which is what PowerShell reports on Windows).
     if ($ExitCode -eq 0 -or $ElapsedSec -ge $script:FastFailSecs -or $ExitCode -in @(130, 3221225786, -1073741510)) {
         Remove-Item $failsPath -Force -ErrorAction SilentlyContinue
+        try { Set-Content -LiteralPath $okPath -Value '1' -NoNewline -ErrorAction Stop } catch {}
         return
     }
+    Remove-Item $okPath -Force -ErrorAction SilentlyContinue
     $count = 0
     if (Test-Path $failsPath) {
         $count = [int]((Get-Content -LiteralPath $failsPath -Raw -ErrorAction SilentlyContinue) -as [int])
@@ -232,6 +245,25 @@ function Test-MinerFailsOnHost {
     if (-not (Test-Path $failsPath)) { return $false }
     $count = [int]((Get-Content -LiteralPath $failsPath -Raw -ErrorAction SilentlyContinue) -as [int])
     return $count -ge $script:FailsToHide
+}
+
+function Test-MinerProvenOnHost {
+    param([string]$BinDir, [string]$MinerId)
+    return (Test-Path (Get-MinerOkPath $BinDir $MinerId))
+}
+
+# A miner is listed only when it can actually run on this host:
+#   startup_gate miners (go-gpu): listed ONLY once .ok proves a real launch
+#     succeeded here — static probes can't see a registered-but-broken driver.
+#   other miners: hidden after ONE confirmed fast startup failure.
+function Test-MinerListable {
+    param([object]$Miner, [string]$BinDir)
+    if (-not $BinDir) { return $true }
+    $isGated = $Miner.PSObject.Properties['startup_gate'] -and $Miner.startup_gate
+    if ($isGated) {
+        return (Test-MinerProvenOnHost -BinDir $BinDir -MinerId $Miner.id)
+    }
+    return -not (Test-MinerFailsOnHost -BinDir $BinDir -MinerId $Miner.id)
 }
 
 # A miner binary must be a complete, platform-valid executable. This catches

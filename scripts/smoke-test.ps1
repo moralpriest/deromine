@@ -350,36 +350,93 @@ try {
     Remove-Item $tmpExit -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 6g. Launch-failure memory: a miner that fails its startup gate ONCE (fast
-# nonzero exit) is hidden from the list until a launch actually succeeds —
-# static checks can't see a registered-but-broken driver, so one confirmed
-# failure is treated as proof this host can't run it. Tests the REAL
-# Mark-MinerLaunchOutcome / Test-MinerFailsOnHost from download.ps1.
+# 6g. Proven-on-host + launch-failure memory: a self-test-gated GPU miner
+# (go-gpu, whose self-test refuses broken drivers) is listed ONLY once a
+# launch proved it runs on this host — a registered-but-broken driver can pass
+# every static probe yet still refuse to mine. Other miners are hidden after
+# ONE confirmed fast failure. Tests the REAL helpers from download.ps1.
 Write-Host ''
-Write-Host '6g. Launch-failure memory:' -ForegroundColor Yellow
+Write-Host '6g. Proven-on-host + failure memory:' -ForegroundColor Yellow
 try {
     . (Join-Path $libDir 'download.ps1')
     $tmpMem = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-mem-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $tmpMem 'go-gpu') -Force | Out-Null
-    Assert-True '  no failures recorded -> listed' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
-    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 2
-    Assert-True '  one confirmed fast failure -> hidden' (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu')
+    New-Item -ItemType Directory -Path (Join-Path $tmpMem 'c') -Force | Out-Null
+    $gated = [PSCustomObject]@{ id = 'go-gpu'; startup_gate = $true }
+    $plain = [PSCustomObject]@{ id = 'c' }
+
+    # Self-test-gated miner: NOT listed until .ok proves a real launch.
+    Assert-True '  gated miner not listed before any launch' (-not (Test-MinerListable -Miner $gated -BinDir $tmpMem))
     Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 0 -ElapsedSec 30
-    Assert-True '  successful run resets -> listed again' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
-    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 130 -ElapsedSec 3
-    Assert-True '  Ctrl+C does not count as failure' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
-    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 60
-    Assert-True '  slow exit does not count as startup failure' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    Assert-True '  successful launch writes .ok -> gated miner listed' (Test-MinerListable -Miner $gated -BinDir $tmpMem)
+    Assert-True '  .ok marker exists' (Test-MinerProvenOnHost -BinDir $tmpMem -MinerId 'go-gpu')
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 1 -ElapsedSec 2
+    Assert-True '  fast failure clears .ok -> gated miner hidden again' (-not (Test-MinerListable -Miner $gated -BinDir $tmpMem))
+
+    # Non-gated miner: listed until ONE confirmed fast failure.
+    Assert-True '  plain miner listed with no failures' (Test-MinerListable -Miner $plain -BinDir $tmpMem)
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'c' -ExitCode 1 -ElapsedSec 2
+    Assert-True '  one confirmed fast failure -> plain miner hidden' (-not (Test-MinerListable -Miner $plain -BinDir $tmpMem))
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'c' -ExitCode 0 -ElapsedSec 30
+    Assert-True '  successful run resets -> plain miner listed again' (Test-MinerListable -Miner $plain -BinDir $tmpMem)
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'c' -ExitCode 130 -ElapsedSec 3
+    Assert-True '  Ctrl+C does not count as failure' (Test-MinerListable -Miner $plain -BinDir $tmpMem)
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'c' -ExitCode 1 -ElapsedSec 60
+    Assert-True '  slow exit does not count as startup failure' (Test-MinerListable -Miner $plain -BinDir $tmpMem)
     # PowerShell reports the NTSTATUS Ctrl+C code as the signed form -1073741510.
-    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode -1073741510 -ElapsedSec 3
-    Assert-True '  signed Ctrl+C code does not count as failure' (-not (Test-MinerFailsOnHost -BinDir $tmpMem -MinerId 'go-gpu'))
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'c' -ExitCode -1073741510 -ElapsedSec 3
+    Assert-True '  signed Ctrl+C code does not count as failure' (Test-MinerListable -Miner $plain -BinDir $tmpMem)
+    # Ctrl+C on a gated miner proves it ran -> .ok written -> listed.
+    Mark-MinerLaunchOutcome -BinDir $tmpMem -MinerId 'go-gpu' -ExitCode 130 -ElapsedSec 3
+    Assert-True '  Ctrl+C proves gated miner -> listed' (Test-MinerListable -Miner $gated -BinDir $tmpMem)
     $uiText = Get-Content (Join-Path $libDir 'ui.ps1') -Raw
-    Assert-True '  miner list filters launch-failed miners' ($uiText -match 'Test-MinerFailsOnHost')
+    Assert-True '  miner list filters on proven-on-host' ($uiText -match 'Test-MinerListable')
 } catch {
-    Assert-True '  launch-failure memory works' $false
+    Assert-True '  proven-on-host + failure memory works' $false
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 } finally {
     Remove-Item $tmpMem -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# 6h. Auto-restart measures the LAST run's elapsed, not the whole session: a
+# stopwatch that spans restart delays would make a fast-failing miner (e.g.
+# go-gpu on a broken GPU) look like it ran long enough to pass startup,
+# wrongly writing .ok and listing it forever. Tests the REAL
+# Start-MinerAutoRestart from run.ps1.
+Write-Host ''
+Write-Host '6h. Auto-restart per-run elapsed:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'run.ps1')
+    $tmpAr = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-autorestart-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmpAr -Force | Out-Null
+    $fakeName = if ($IsWindows) { 'fail-miner.cmd' } else { 'fail-miner.sh' }
+    $fakeBin = Join-Path $tmpAr $fakeName
+    if ($IsWindows) {
+        Set-Content -LiteralPath $fakeBin -Value "@echo off`r`nexit /b 1`r`n" -NoNewline
+    } else {
+        Set-Content -LiteralPath $fakeBin -Value "#!/bin/sh`nexit 1`n" -NoNewline
+        chmod +x $fakeBin 2>$null
+    }
+    $flagMap = @{ daemon = '-d'; wallet = '-w'; threads = '-t' }
+    # 3 fast failures with 2s delays. The returned elapsed must be the LAST
+    # single run, never the whole session (restart delays included). Measure
+    # the session with our own stopwatch and require last < session: a
+    # caller-side stopwatch that spans delays would always report a value
+    # that meets or exceeds the session, so this catches the regression
+    # regardless of machine speed.
+    $sessionSw = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastElapsed = Start-MinerAutoRestart -MinerId 'go-gpu' -BinaryPath $fakeBin -DaemonUrl 'host:10100' -WalletAddress 'dero1test' -ThreadCount 2 -FlagMap $flagMap -ExtraArgs @() -MaxRestarts 3 -RestartDelay 2
+    $sessionSw.Stop()
+    $sessionElapsed = [int]$sessionSw.Elapsed.TotalSeconds
+    Assert-True '  auto-restart returns the last run elapsed as an int' ($lastElapsed -is [int])
+    Assert-True '  returned elapsed is the last run, not the whole session' ($lastElapsed -is [int] -and $lastElapsed -lt $sessionElapsed)
+    $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  mine.ps1 uses the returned per-run elapsed for auto-restart' ($mineText -match 'lastElapsedSec = Start-MinerAutoRestart')
+} catch {
+    Assert-True '  auto-restart per-run elapsed works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    Remove-Item $tmpAr -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # 7. Installer (install.ps1) runs and places the launcher for this OS

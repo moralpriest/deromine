@@ -220,25 +220,41 @@ else
 fi
 rm -rf "$tmpvulkan"
 
-# 5g. Launch-failure memory: a miner that fails its startup gate ONCE (fast
-# nonzero exit) is hidden from the list until a launch actually succeeds.
-# Extracts the REAL helpers from mine.sh.
+# 5g. Proven-on-host + launch-failure memory: a self-test-gated GPU miner
+# (go-gpu) is listed ONLY once a launch proved it runs on this host; other
+# miners are hidden after ONE confirmed fast failure. Extracts the REAL
+# helpers from mine.sh.
 echo ""
-echo "5g. Launch-failure memory:"
+echo "5g. Proven-on-host + failure memory:"
 tmpmem=$(mktemp -d)
-mkdir -p "$tmpmem/go-gpu"
+mkdir -p "$tmpmem/go-gpu" "$tmpmem/c"
 eval "$(sed -n '/^mark_miner_launch_outcome()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^miner_fails_on_host()/,/^}/p' mine.sh)"
-if miner_fails_on_host "$tmpmem" go-gpu; then fail "no failures recorded -> listed"; else pass "no failures recorded -> listed"; fi
-mark_miner_launch_outcome "$tmpmem" go-gpu 1 2
-if miner_fails_on_host "$tmpmem" go-gpu; then pass "one confirmed fast failure -> hidden"; else fail "one confirmed fast failure -> hidden"; fi
+eval "$(sed -n '/^miner_proven_on_host()/,/^}/p' mine.sh)"
+eval "$(sed -n '/^miner_listable_on_host()/,/^}/p' mine.sh)"
+GATED='{"id":"go-gpu","startup_gate":true}'
+PLAIN='{"id":"c"}'
+# Self-test-gated miner: NOT listed until .ok proves a real launch.
+if miner_listable_on_host "$tmpmem" "$GATED"; then fail "gated miner not listed before any launch"; else pass "gated miner not listed before any launch"; fi
 mark_miner_launch_outcome "$tmpmem" go-gpu 0 30
-if miner_fails_on_host "$tmpmem" go-gpu; then fail "successful run resets -> listed again"; else pass "successful run resets -> listed again"; fi
+if miner_listable_on_host "$tmpmem" "$GATED"; then pass "successful launch writes .ok -> gated miner listed"; else fail "successful launch writes .ok -> gated miner listed"; fi
+if miner_proven_on_host "$tmpmem" go-gpu; then pass ".ok marker exists"; else fail ".ok marker exists"; fi
+mark_miner_launch_outcome "$tmpmem" go-gpu 1 2
+if miner_listable_on_host "$tmpmem" "$GATED"; then fail "fast failure clears .ok -> gated miner hidden again"; else pass "fast failure clears .ok -> gated miner hidden again"; fi
+# Non-gated miner: listed until ONE confirmed fast failure.
+if miner_listable_on_host "$tmpmem" "$PLAIN"; then pass "plain miner listed with no failures"; else fail "plain miner listed with no failures"; fi
+mark_miner_launch_outcome "$tmpmem" c 1 2
+if miner_listable_on_host "$tmpmem" "$PLAIN"; then fail "one confirmed fast failure -> plain miner hidden"; else pass "one confirmed fast failure -> plain miner hidden"; fi
+mark_miner_launch_outcome "$tmpmem" c 0 30
+if miner_listable_on_host "$tmpmem" "$PLAIN"; then pass "successful run resets -> plain miner listed again"; else fail "successful run resets -> plain miner listed again"; fi
+mark_miner_launch_outcome "$tmpmem" c 130 3
+if miner_listable_on_host "$tmpmem" "$PLAIN"; then pass "Ctrl+C does not count as failure"; else fail "Ctrl+C does not count as failure"; fi
+mark_miner_launch_outcome "$tmpmem" c 1 60
+if miner_listable_on_host "$tmpmem" "$PLAIN"; then pass "slow exit does not count as startup failure"; else fail "slow exit does not count as startup failure"; fi
+# Ctrl+C on a gated miner proves it ran -> .ok written -> listed.
 mark_miner_launch_outcome "$tmpmem" go-gpu 130 3
-if miner_fails_on_host "$tmpmem" go-gpu; then fail "Ctrl+C does not count as failure"; else pass "Ctrl+C does not count as failure"; fi
-mark_miner_launch_outcome "$tmpmem" go-gpu 1 60
-if miner_fails_on_host "$tmpmem" go-gpu; then fail "slow exit does not count as startup failure"; else pass "slow exit does not count as startup failure"; fi
-if grep -q 'miner_fails_on_host' mine.sh; then pass "mine.sh wires launch-failure hiding"; else fail "mine.sh wires launch-failure hiding"; fi
+if miner_listable_on_host "$tmpmem" "$GATED"; then pass "Ctrl+C proves gated miner -> listed"; else fail "Ctrl+C proves gated miner -> listed"; fi
+if grep -q 'miner_listable_on_host' mine.sh; then pass "mine.sh wires proven-on-host hiding"; else fail "mine.sh wires proven-on-host hiding"; fi
 rm -rf "$tmpmem"
 
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).

@@ -75,11 +75,18 @@ function Start-MinerAutoRestart {
         } catch { $logFile = '' }
     }
     $restartCount = 0
+    $lastElapsedSec = 0
     while ($restartCount -lt $MaxRestarts) {
         $stamp = Get-Date -Format 'HH:mm:ss'
         if ($logFile) {
             Add-Content $logFile "=== $stamp run $($restartCount + 1)/$MaxRestarts ($MinerId) ==="
         }
+        # Elapsed is PER RUN, not per session: with --auto-restart the restart
+        # delays must never count toward "ran long enough to get past startup".
+        # A miner that fails its startup gate in 2s stays a fast failure even
+        # after several restarts; only the LAST run's duration is reported so
+        # the .fails/.ok decision keys on how the launch actually ended.
+        $runSw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             $out = Start-Miner -BinaryPath $BinaryPath -DaemonUrl $DaemonUrl -WalletAddress $WalletAddress -ThreadCount $ThreadCount -FlagMap $FlagMap -ExtraArgs $ExtraArgs 2>&1
             if ($logFile -and $out) { $out | Out-File -FilePath $logFile -Append -Encoding utf8 }
@@ -88,6 +95,8 @@ function Start-MinerAutoRestart {
             Write-Host "[!] $errMsg" -ForegroundColor Yellow
             if ($logFile) { Add-Content $logFile "ERROR: $errMsg" }
         }
+        $runSw.Stop()
+        $lastElapsedSec = [int]$runSw.Elapsed.TotalSeconds
         $restartCount++
         if ($restartCount -ge $MaxRestarts) {
             Write-Host "[!] Max restarts ($MaxRestarts) reached for $MinerId" -ForegroundColor Red
@@ -99,4 +108,8 @@ function Start-MinerAutoRestart {
         Start-Sleep -Seconds $RestartDelay
     }
     if ($logFile) { Write-Host "[*] Log: $logFile" -ForegroundColor DarkGray }
+    # Report the LAST run's elapsed (not the whole session including restart
+    # delays) so mine.ps1's failure-memory decision sees a true startup
+    # duration, never a broken miner padded by sleeps.
+    return $lastElapsedSec
 }

@@ -109,9 +109,10 @@ function Write-MinerTable {
         $asset = Get-MinerAsset $m $Platform.os $Platform.arch
         if (-not $asset) { continue }
         if (-not (Test-MinerHardwareSupported $m)) { continue }
-        # Hide miners that failed their startup gate repeatedly on this host
-        # (--miner=<id> still force-runs them).
-        if ($BinDir -and (Test-MinerFailsOnHost -BinDir $BinDir -MinerId $m.id)) { continue }
+        # Hide miners that can't actually run on this host: self-test-gated
+        # GPU miners (go-gpu) are listed only once a launch proved they work
+        # here; other miners are hidden after one confirmed startup failure.
+        if ($BinDir -and -not (Test-MinerListable -Miner $m -BinDir $BinDir)) { continue }
         $rows += $m
     }
 

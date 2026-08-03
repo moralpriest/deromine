@@ -5,8 +5,9 @@ function Get-SupportedMiners {
     foreach ($m in $Catalog.miners) {
         if (-not (Get-MinerAsset $m $Platform.os $Platform.arch)) { continue }
         if (-not (Test-MinerHardwareSupported $m)) { continue }
-        # Hide miners that failed their startup gate repeatedly on this host.
-        if ($BinDir -and (Test-MinerFailsOnHost -BinDir $BinDir -MinerId $m.id)) { continue }
+        # Hide miners that can't actually run on this host: self-test-gated
+        # GPU miners are listed only once a launch proved they work here.
+        if ($BinDir -and -not (Test-MinerListable -Miner $m -BinDir $BinDir)) { continue }
         $rows += $m
     }
     return $rows

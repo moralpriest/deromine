@@ -431,9 +431,14 @@ $daemonDisplay = $effectiveDaemon -replace '^https?://', ''
 Write-LaunchSummary -Miner $miner -Binary $binaryPath -Daemon $daemonDisplay -Wallet $effectiveWallet -Threads $effectiveThreads -DevFee $showDevFee
 
 # ── Launch (foreground) ──
-$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$lastElapsedSec = 0
 if ($autoRestart) {
-    Start-MinerAutoRestart `
+    # Start-MinerAutoRestart reports the LAST run's elapsed. A wrapper
+    # stopwatch must NOT span the whole session: restart delays would make a
+    # fast-failing miner look like it ran long enough to pass startup, and a
+    # broken self-test-gated miner (go-gpu) would wrongly get marked
+    # proven-on-host and listed forever.
+    $lastElapsedSec = Start-MinerAutoRestart `
         -MinerId $miner.id `
         -BinaryPath $binaryPath `
         -DaemonUrl $effectiveDaemon `
@@ -445,9 +450,11 @@ if ($autoRestart) {
         -RestartDelay $restartDelay `
         -LogDir (Join-Path $outputDir 'logs')
 } else {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Start-Miner -BinaryPath $binaryPath -DaemonUrl $effectiveDaemon -WalletAddress $effectiveWallet -ThreadCount $effectiveThreads -FlagMap $flagMap -ExtraArgs $cmdArgs
+    $sw.Stop()
+    $lastElapsedSec = [int]$sw.Elapsed.TotalSeconds
 }
-$sw.Stop()
 # Remember fast startup failures so a miner that can't run on this host is
 # hidden from the list on future runs (--miner=<id> still force-runs it).
-Mark-MinerLaunchOutcome -BinDir $outputDir -MinerId $miner.id -ExitCode $LASTEXITCODE -ElapsedSec [int]$sw.Elapsed.TotalSeconds
+Mark-MinerLaunchOutcome -BinDir $outputDir -MinerId $miner.id -ExitCode $LASTEXITCODE -ElapsedSec $lastElapsedSec

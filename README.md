@@ -334,11 +334,18 @@ change, without keeping manual notes. Results are compared by miner id.
    convention (`-d`, `-w`, `-t`). Any `http(s)://` scheme is stripped from the
    daemon address.
 7. **Mining** launches the binary in the foreground with the built arguments.
-   `--auto-restart` wraps it in a restart loop (max restarts, delay). Fast
-   startup failures (a nonzero exit within ~10s — missing DLLs, broken GPU
-   driver, incompatible build) are remembered per miner in `bin/<id>/.fails`;
-   after one confirmed failure the miner is hidden from the list until a
-   launch actually succeeds. `--miner=<id>` still force-runs a hidden miner.
+   `--auto-restart` wraps it in a restart loop (max restarts, delay). Launch
+   outcomes are remembered per miner in `bin/<id>/`: `.fails` records fast
+   startup failures (nonzero exit within ~10s — missing DLLs, incompatible
+   build), and `.ok` records a launch that **proved** the miner runs on this
+   host (exit 0, a run that got past startup, or Ctrl+C). Under
+   `--auto-restart` the elapsed time is measured **per run**, never across the
+   whole session — restart delays don't count toward "got past startup", so a
+   miner that fails its startup gate in seconds stays hidden even after a loop
+   full of restarts. A confirmed failure
+   hides a normal miner until it succeeds again; self-test-gated GPU miners
+   (go-gpu) are listed only once `.ok` exists. `--miner=<id>` still force-runs
+   a hidden miner.
 8. **Benchmark mode** runs each supported miner for a fixed window, parses the
    reported hashrate, and prints a comparison table.
 
@@ -380,21 +387,22 @@ Both suites fail with exit code 1 on any regression.
   loader (`vulkan-1.dll`) to create an instance and enumerate physical devices
   (via PowerShell on both the PS and bash paths), so go-gpu is hidden on
   machines with no usable Vulkan runtime — WARP-only renderers, older iGPU
-  drivers, VMs, and machines whose Vulkan driver is registered but broken (the
-  Intel Iris Xe case where the miner fell back to DX12 and its self-test
-  refused to mine). If go-gpu is listed but the miner's own startup self-test
-  still refuses to mine on your GPU/driver, that is the miner refusing an
-  unusable device (it exits 1 with an explanation) — deromine will remember
-  the failure and hide it from the list after one fast failed launch; use a CPU
-  miner instead.
-- **A miner disappears from the list after failing to start**: deromine hides a
-  miner after it exits nonzero within ~10s of launch once on this host (the
-  classic "listed but broken on this hardware" case — missing DLLs, a broken
-  GPU driver, an incompatible build; static checks can't see a
-  registered-but-broken driver, so one confirmed failure is treated as proof
-  this host can't run it). Force-run it anyway with `deromine --miner=<id>`;
-  it reappears automatically once a launch actually succeeds. To reset
-  manually, delete `bin/<id>/.fails`.
+  drivers, VMs. Some drivers are registered AND enumerate a device yet still
+  miscompute under the real mining workload (the Intel Iris Xe case, where the
+  miner falls back to DX12 and its own startup self-test refuses). No static
+  probe can see that — only a real launch can. So go-gpu is **only listed once
+  a launch has actually succeeded on this host** (deromine remembers it in
+  `bin/go-gpu/.ok`). On a machine where it can never run, it never appears at
+  all; `deromine --miner=go-gpu` still force-runs it if you want to try after
+  updating your driver.
+- **A miner disappears from the list after failing to start**: non-gated
+  miners are hidden after they exit nonzero within ~10s of launch once on this
+  host (the classic "listed but broken on this hardware" case — missing DLLs,
+  an incompatible build). Self-test-gated GPU miners (go-gpu) are listed only
+  once they have proven a successful launch here. Force-run a hidden miner
+  anyway with `deromine --miner=<id>`; it reappears automatically once a
+  launch actually succeeds. To reset manually, delete `bin/<id>/.fails` (or
+  `bin/<id>/.ok` for gated miners).
 - **Astronv fails to start**: it needs NVIDIA drivers (`libnvidia-ml.so.1`) and is
   Linux amd64 only.
 - **derohe is missing from the list on Termux/Android**: derohe's arm64 release

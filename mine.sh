@@ -280,22 +280,30 @@ lift_binary() {
     rm -rf "$lift_dir"
 }
 
-# ── Launch-failure memory ──
+# ── Launch-failure memory + proven-on-host ──
 # A miner that can't run on this host (missing DLLs, broken GPU driver, broken
 # arm64 build) used to be listed forever and fail on every attempt. deromine
-# remembers fast nonzero exits in a per-miner bin/<id>/.fails file and hides
-# such miners from the list until a launch actually succeeds. Static checks
-# can't see a registered-but-broken driver, so ONE confirmed fast failure
-# (within 10s) hides the miner. --miner=<id> still force-runs a hidden miner.
+# remembers per-miner launch outcomes in bin/<id>/:
+#   .fails — fast nonzero exits (within 10s); ONE confirmed failure hides it.
+#   .ok    — a launch that PROVED the miner can run here (exit 0, ran long
+#            enough to get past startup, or user Ctrl+C). Miners marked
+#            startup_gate in the catalog (go-gpu's self-test refuses broken
+#            GPUs) are only LISTED once .ok exists — a registered-but-broken
+#            driver can pass every static probe yet still refuse to mine, so
+#            the only reliable proof is a real successful launch on this host.
+# --miner=<id> still force-runs a hidden miner.
 mark_miner_launch_outcome() {
-    local bindir="$1" mid="$2" rc="$3" elapsed="$4" f count
+    local bindir="$1" mid="$2" rc="$3" elapsed="$4" f ok count
     [ -d "$bindir/$mid" ] || return 0
     f="$bindir/$mid/.fails"
-    # Successful runs, slow exits, and Ctrl+C (130) clear the memory.
+    ok="$bindir/$mid/.ok"
+    # Successful runs, slow exits, and Ctrl+C (130) prove the miner works here.
     if [ "$rc" -eq 0 ] || [ "$elapsed" -ge 10 ] || [ "$rc" -eq 130 ]; then
         rm -f "$f"
+        printf '1' > "$ok" 2>/dev/null || true
         return 0
     fi
+    rm -f "$ok"
     count=0
     [ -f "$f" ] && count=$(cat "$f" 2>/dev/null || echo 0)
     count=$((count + 1))
@@ -309,6 +317,27 @@ miner_fails_on_host() {
     [ -f "$f" ] || return 1
     count=$(cat "$f" 2>/dev/null || echo 0)
     [ "$count" -ge 1 ]
+}
+
+miner_proven_on_host() {
+    local bindir="$1" mid="$2"
+    [ -f "$bindir/$mid/.ok" ]
+}
+
+# A miner is listed only when it can actually run on this host:
+#   startup_gate miners (go-gpu): listed ONLY once .ok proves a real launch
+#     succeeded here — static probes can't see a registered-but-broken driver.
+#   other miners: hidden after ONE confirmed fast startup failure.
+miner_listable_on_host() {
+    local bindir="$1" m="$2" id gate
+    [ -n "$bindir" ] || return 0
+    id=$(echo "$m" | jq -r '.id')
+    gate=$(echo "$m" | jq -r '.startup_gate // false')
+    if [ "$gate" = "true" ]; then
+        miner_proven_on_host "$bindir" "$id"
+    else
+        ! miner_fails_on_host "$bindir" "$id"
+    fi
 }
 
 # Download, extract, lift (rename to the canonical cache name), verify, and
@@ -663,9 +692,10 @@ for m in "${MINER_JSONS[@]}"; do
     pattern=$(get_asset_pattern "$m")
     [ -z "$pattern" ] && continue
     if ! miner_hardware_ok "$m"; then continue; fi
-    # Hide miners that failed their startup gate repeatedly on this host
-    # (--miner=<id> still force-runs them).
-    if miner_fails_on_host "$BIN_DIR" "$(echo "$m" | jq -r '.id')"; then continue; fi
+    # Hide miners that can't actually run on this host: self-test-gated GPU
+    # miners (go-gpu) are listed only once a launch proved they work here;
+    # other miners are hidden after one confirmed startup failure.
+    if ! miner_listable_on_host "$BIN_DIR" "$m"; then continue; fi
     SUPPORTED+=("$m")
 done
 
