@@ -164,3 +164,54 @@ function Invoke-Extract {
         throw "unknown archive type"
     }
 }
+
+# A miner binary must be a complete, platform-valid executable. This catches
+# truncated/interrupted extractions that used to be cached forever — a corrupt
+# binary can still run far enough to print its usage screen instead of mining.
+function Test-BinaryIntegrity {
+    param([string]$Path, [string]$Os)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    try {
+        $fi = Get-Item -LiteralPath $Path
+        if ($fi.Length -lt 200000) { return $false }
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $buf = New-Object byte[] 4
+            $read = $fs.Read($buf, 0, 4)
+            if ($read -lt 4) { return $false }
+            if ($Os -eq 'windows') {
+                # MZ
+                return ($buf[0] -eq 0x4D -and $buf[1] -eq 0x5A)
+            }
+            if ($Os -eq 'macos') {
+                # Mach-O: MH_MAGIC_64 / fat / MH_MAGIC variants
+                return (($buf[0] -eq 0xCF -and $buf[1] -eq 0xFA -and $buf[2] -eq 0xED -and $buf[3] -eq 0xFE) -or
+                        ($buf[0] -eq 0xCA -and $buf[1] -eq 0xFE -and $buf[2] -eq 0xBA -and $buf[3] -eq 0xBE) -or
+                        ($buf[0] -eq 0xFE -and $buf[1] -eq 0xED -and $buf[2] -eq 0xFA -and $buf[3] -eq 0xCE) -or
+                        ($buf[0] -eq 0xFE -and $buf[1] -eq 0xED -and $buf[2] -eq 0xFA -and $buf[3] -eq 0xCF))
+            }
+            # ELF (\x7fELF)
+            return ($buf[0] -eq 0x7F -and $buf[1] -eq 0x45 -and $buf[2] -eq 0x4C -and $buf[3] -eq 0x46)
+        } finally {
+            $fs.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
+# A cached binary is usable only if it exists, its recorded release tag matches
+# the currently-resolved latest tag, and it passes the integrity check.
+function Test-CachedBinaryUsable {
+    param([string]$BinaryPath, [string]$ResolvedTag, [string]$Os)
+    if (-not (Test-Path -LiteralPath $BinaryPath)) { return $false }
+    $tagPath = "$BinaryPath.tag"
+    if (-not (Test-Path -LiteralPath $tagPath)) { return $false }
+    try {
+        $cachedTag = (Get-Content -LiteralPath $tagPath -Raw -ErrorAction Stop).Trim()
+    } catch {
+        return $false
+    }
+    if ($cachedTag -ne $ResolvedTag) { return $false }
+    return (Test-BinaryIntegrity $BinaryPath $Os)
+}

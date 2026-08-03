@@ -159,6 +159,41 @@ try {
     Remove-Item (Join-Path ([System.IO.Path]::GetTempPath()) 'deromine-com.termux-*') -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 6d. Cache integrity + version-aware cache (tests the real lib/download.ps1 helpers)
+Write-Host ''
+Write-Host '6d. Cache integrity:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'download.ps1')
+    $tmpCache = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-cache-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmpCache -Force | Out-Null
+    $good = Join-Path $tmpCache 'good.bin'
+    $bad = Join-Path $tmpCache 'bad.bin'
+    $small = Join-Path $tmpCache 'small.bin'
+    $goodBuf = New-Object byte[] 400000
+    $goodBuf[0] = 0x7F; $goodBuf[1] = 0x45; $goodBuf[2] = 0x4C; $goodBuf[3] = 0x46
+    [System.IO.File]::WriteAllBytes($good, $goodBuf)
+    $badBuf = New-Object byte[] 400000
+    [System.IO.File]::WriteAllBytes($bad, $badBuf)
+    [System.IO.File]::WriteAllBytes($small, @([byte]0x7F, 0x45, 0x4C, 0x46, 0x74, 0x69, 0x6E, 0x79))
+    Assert-True '  integrity accepts valid ELF binary' (Test-BinaryIntegrity $good 'linux')
+    Assert-True '  integrity rejects wrong magic' (-not (Test-BinaryIntegrity $bad 'linux'))
+    Assert-True '  integrity rejects tiny file' (-not (Test-BinaryIntegrity $small 'linux'))
+    $cached = Join-Path $tmpCache 'cached.bin'
+    [System.IO.File]::WriteAllBytes($cached, $goodBuf)
+    Set-Content -LiteralPath "$cached.tag" -Value 'v0.3.0' -NoNewline
+    Assert-True '  matching tag + valid binary is usable' (Test-CachedBinaryUsable $cached 'v0.3.0' 'linux')
+    Set-Content -LiteralPath "$cached.tag" -Value 'v0.2.0' -NoNewline
+    Assert-True '  stale tag forces re-download' (-not (Test-CachedBinaryUsable $cached 'v0.3.0' 'linux'))
+    Remove-Item "$cached.tag" -Force -ErrorAction SilentlyContinue
+    Assert-True '  missing tag forces re-download' (-not (Test-CachedBinaryUsable $cached 'v0.3.0' 'linux'))
+    $corrupt = Join-Path $tmpCache 'corrupt.bin'
+    [System.IO.File]::WriteAllBytes($corrupt, $badBuf)
+    Set-Content -LiteralPath "$corrupt.tag" -Value 'v0.3.0' -NoNewline
+    Assert-True '  corrupt binary forces re-download' (-not (Test-CachedBinaryUsable $corrupt 'v0.3.0' 'linux'))
+} finally {
+    Remove-Item $tmpCache -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
 Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow

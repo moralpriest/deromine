@@ -320,7 +320,12 @@ change, without keeping manual notes. Results are compared by miner id.
 4. **Asset matching** filters `assets[]` by `os`, `arch`, and `pattern` glob.
 5. **Download** queries the GitHub/GitLab latest-release API at runtime, matches
    the asset by pattern, extracts it, and places the binary in `bin/<miner-id>/`.
-   Nested binaries are lifted to the top-level folder.
+   Nested binaries are lifted to the top-level folder. The cache is
+   **version-aware**: the release tag is recorded next to each binary
+   (`<binary>.tag`), and each binary is integrity-checked (valid
+   ELF/Mach-O/PE magic, non-trivial size) before use. A stale or corrupt cached
+   binary is silently re-downloaded — so a new upstream release or an
+   interrupted download can never leave a broken miner in place.
 6. **Command building** uses the miner's `flags` map from the catalog (daemon,
    wallet, threads, coin, port, dev fee), defaulting to the Dirtybird short-flag
    convention (`-d`, `-w`, `-t`). Any `http(s)://` scheme is stripped from the
@@ -367,3 +372,12 @@ Both suites fail with exit code 1 on any regression.
   fails its own ELF self-check (`unexpected e_type: 2`) on Android/Termux, so it
   is marked `unsupported` there and hidden. Use the Dirtybird miners instead:
   `deromine --miner=rust` (or `c`/`go`/`zig`) — they ship Android arm64 builds.
+- **A miner prints its usage/help screen instead of mining** (e.g. the zig
+  miner dumping `Usage: zig-miner ...` right after the `[*] Command:` line):
+  this can happen when the cached binary in `bin/<miner-id>/` is stale or
+  truncated from an interrupted download — a corrupt binary can still run far
+  enough to print usage. deromine's cache is version-aware and
+  integrity-checked, so it now detects and re-downloads such binaries
+  automatically. To force a fresh download manually, remove the miner's cache
+  and re-run: `rm -rf bin/<miner-id>` (e.g. `rm -rf bin/zig`), then
+  `deromine --miner=zig`.

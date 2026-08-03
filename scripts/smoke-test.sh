@@ -126,6 +126,34 @@ else
 fi
 rm -rf "$fake_base"
 
+# 5d. Cache integrity + version-aware cache. Extracts the REAL helper functions
+# from mine.sh (not a copy) so edits to them are caught.
+echo ""
+echo "5d. Cache integrity:"
+tmpcache=$(mktemp -d)
+head -c 400000 /dev/zero > "$tmpcache/good.bin"
+printf '\x7fELF' | dd of="$tmpcache/good.bin" bs=1 seek=0 conv=notrunc 2>/dev/null
+head -c 400000 /dev/zero > "$tmpcache/bad.bin"
+printf 'NOPE' | dd of="$tmpcache/bad.bin" bs=1 seek=0 conv=notrunc 2>/dev/null
+printf '\x7fELFtiny' > "$tmpcache/small.bin"
+eval "$(sed -n '/^binary_integrity_ok()/,/^}/p' mine.sh)"
+eval "$(sed -n '/^cached_binary_usable()/,/^}/p' mine.sh)"
+OS=linux
+if binary_integrity_ok "$tmpcache/good.bin"; then pass "integrity accepts valid ELF binary"; else fail "integrity accepts valid ELF binary"; fi
+if binary_integrity_ok "$tmpcache/bad.bin"; then fail "integrity rejects wrong magic"; else pass "integrity rejects wrong magic"; fi
+if binary_integrity_ok "$tmpcache/small.bin"; then fail "integrity rejects tiny file"; else pass "integrity rejects tiny file"; fi
+cp "$tmpcache/good.bin" "$tmpcache/cached.bin"
+printf 'v0.3.0\n' > "$tmpcache/cached.bin.tag"
+if cached_binary_usable "$tmpcache/cached.bin" "v0.3.0"; then pass "matching tag + valid binary is usable"; else fail "matching tag + valid binary is usable"; fi
+printf 'v0.2.0\n' > "$tmpcache/cached.bin.tag"
+if cached_binary_usable "$tmpcache/cached.bin" "v0.3.0"; then fail "stale tag forces re-download"; else pass "stale tag forces re-download"; fi
+rm -f "$tmpcache/cached.bin.tag"
+if cached_binary_usable "$tmpcache/cached.bin" "v0.3.0"; then fail "missing tag forces re-download"; else pass "missing tag forces re-download"; fi
+cp "$tmpcache/bad.bin" "$tmpcache/corrupt.bin"
+printf 'v0.3.0\n' > "$tmpcache/corrupt.bin.tag"
+if cached_binary_usable "$tmpcache/corrupt.bin" "v0.3.0"; then fail "corrupt binary forces re-download"; else pass "corrupt binary forces re-download"; fi
+rm -rf "$tmpcache"
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

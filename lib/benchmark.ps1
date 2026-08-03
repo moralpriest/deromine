@@ -68,11 +68,9 @@ function Invoke-BenchmarkProcess {
 function Get-MinerBinaryPath {
     param([object]$Miner, [string]$BinDir, [string]$PlatformOs, [string]$PlatformArch)
     $minerDir = Join-Path $BinDir $Miner.id
+    New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
     $binaryName = Get-MinerBinaryName $Miner $PlatformOs $PlatformArch
     $binaryPath = Join-Path $minerDir $binaryName
-    if (Test-Path $binaryPath) { return $binaryPath }
-
-    New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
     $archiveBinary = Get-MinerArchiveBinaryName $Miner $PlatformOs $PlatformArch
     $asset = Get-MinerAsset $Miner $PlatformOs $PlatformArch
     if (-not $asset) { return $null }
@@ -81,33 +79,54 @@ function Get-MinerBinaryPath {
     if (-not $repoHost) { $repoHost = 'github' }
     $branch = [string]$Miner.branch
     $releasePath = [string]$Miner.release_path
+    # Resolve always (needed for the version-aware cache check).
     $resolved = Resolve-DownloadAsset -Repo $Miner.repo -RepoHost $repoHost -Branch $branch -ReleasePath $releasePath -Os $PlatformOs -Arch $PlatformArch -Pattern $pattern
     if (-not $resolved) { return $null }
 
-    Write-Host "  [fetch] $($Miner.name) ($($resolved.Tag))" -ForegroundColor DarkGray
-    $archivePath = Join-Path $minerDir $resolved.Name
-    $ok = Save-WebFile $resolved.Url $archivePath
-    if (-not $ok) { return $null }
-    Invoke-Extract $archivePath $minerDir
-    Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
+    $needFetch = -not (Test-Path $binaryPath)
+    if (-not $needFetch) {
+        $needFetch = -not (Test-CachedBinaryUsable $binaryPath $resolved.Tag $PlatformOs)
+    }
+    if ($needFetch) {
+        if (Test-Path $binaryPath) {
+            Write-Host "  [re-fetch] $($Miner.name): cached binary stale or corrupt" -ForegroundColor DarkGray
+            Remove-Item $binaryPath -Force -ErrorAction SilentlyContinue
+            Remove-Item "$binaryPath.tag" -Force -ErrorAction SilentlyContinue
+        }
+        Write-Host "  [fetch] $($Miner.name) ($($resolved.Tag))" -ForegroundColor DarkGray
+        $archivePath = Join-Path $minerDir $resolved.Name
+        $ok = Save-WebFile $resolved.Url $archivePath
+        if (-not $ok) { return $null }
+        Invoke-Extract $archivePath $minerDir
+        Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
 
-    if (-not (Test-Path $binaryPath)) {
-        $found = Get-ChildItem -Path $minerDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $archiveBinary } | Select-Object -First 1
-        if ($found) {
-            if ($found.DirectoryName -ne $minerDir) {
-                Copy-Item $found.FullName $binaryPath -Force
+        if (-not (Test-Path $binaryPath)) {
+            $found = Get-ChildItem -Path $minerDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $archiveBinary } | Select-Object -First 1
+            if ($found) {
+                if ($found.DirectoryName -ne $minerDir) {
+                    Copy-Item $found.FullName $binaryPath -Force
+                }
             }
         }
-    }
-    if (Test-Path $binaryPath) {
-        if ($PlatformOs -ne 'windows') {
-            try { & chmod +x $binaryPath 2>$null } catch {}
-        } else {
-            try { Unblock-File -Path $binaryPath -ErrorAction SilentlyContinue } catch {}
+        if (Test-Path $binaryPath) {
+            if ($PlatformOs -ne 'windows') {
+                try { & chmod +x $binaryPath 2>$null } catch {}
+            } else {
+                try { Unblock-File -Path $binaryPath -ErrorAction SilentlyContinue } catch {}
+            }
+            if (-not (Test-BinaryIntegrity $binaryPath $PlatformOs)) {
+                Write-Host "  [x] $($Miner.name): extracted binary failed integrity check" -ForegroundColor Red
+                Remove-Item $binaryPath -Force -ErrorAction SilentlyContinue
+                Remove-Item "$binaryPath.tag" -Force -ErrorAction SilentlyContinue
+                return $null
+            }
+            # Record the release tag so future runs can detect a stale cache.
+            try { Set-Content -LiteralPath "$binaryPath.tag" -Value $resolved.Tag -NoNewline -ErrorAction SilentlyContinue } catch {}
+            return $binaryPath
         }
-        return $binaryPath
+        return $null
     }
-    return $null
+    return $binaryPath
 }
 
 function Get-TnnHashrate {

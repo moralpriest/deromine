@@ -346,12 +346,21 @@ if (-not (Test-Path $minerDir)) {
     New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
 }
 
-# ── Download ──
+# ── Download (version-aware cache: a stale or corrupt cached binary is
+#    re-downloaded instead of being used forever) ──
 $archivePath = Join-Path $minerDir $archiveName
 $binaryPath = Join-Path $minerDir $binaryName
 $needsDownload = -not (Test-Path $binaryPath)
+if (-not $needsDownload) {
+    $needsDownload = -not (Test-CachedBinaryUsable $binaryPath $resolved.Tag $platform.os)
+}
 
 if ($needsDownload) {
+    if (Test-Path $binaryPath) {
+        Write-Host "Cached binary is stale or corrupt; re-downloading..." -ForegroundColor DarkYellow
+        Remove-Item $binaryPath -Force -ErrorAction SilentlyContinue
+        Remove-Item "$binaryPath.tag" -Force -ErrorAction SilentlyContinue
+    }
     Write-Host "Downloading $archiveName ($($resolved.Tag))..." -ForegroundColor Yellow
     $success = Save-WebFile $downloadUrl $archivePath
     if (-not $success) {
@@ -362,7 +371,7 @@ if ($needsDownload) {
     Invoke-Extract $archivePath $minerDir
     Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
 } else {
-    Write-Success "Using cached binary: $binaryPath"
+    Write-Success "Using cached binary: $binaryPath ($($resolved.Tag))"
 }
 
 # ── Resolve binary path (handle nested dirs) ──
@@ -395,6 +404,15 @@ if ($platform.os -ne 'windows') {
     # Downloaded/extracted files carry Mark-of-the-Web; clear it so Windows
     # does not block the miner on launch (SmartScreen / Defender).
     try { Unblock-File -Path $binaryPath -ErrorAction SilentlyContinue } catch {}
+}
+
+if ($needsDownload) {
+    if (-not (Test-BinaryIntegrity $binaryPath $platform.os)) {
+        Write-Error "Extracted binary '$binaryPath' failed integrity check"
+        exit 1
+    }
+    # Record the release tag so future runs can detect a stale cache.
+    try { Set-Content -LiteralPath "$binaryPath.tag" -Value $resolved.Tag -NoNewline -ErrorAction SilentlyContinue } catch {}
 }
 
 # ── Build command ──

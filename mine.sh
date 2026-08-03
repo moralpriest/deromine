@@ -230,6 +230,71 @@ get_archive_binary_name() {
     echo "$name"
 }
 
+# ── Cache integrity & version check ──
+# A miner binary must be a complete, platform-valid executable. This catches
+# truncated/interrupted extractions that used to be cached forever — a corrupt
+# binary can still run far enough to print its usage screen instead of mining.
+binary_integrity_ok() {
+    local path="$1" size magic
+    [ -f "$path" ] || return 1
+    size=$(stat -c %s "$path" 2>/dev/null || stat -f %z "$path" 2>/dev/null || echo 0)
+    [ "$size" -ge 200000 ] || return 1
+    magic=$(head -c 4 "$path" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    case "$OS" in
+        windows) [[ "$magic" == 4d5a* ]] || return 1 ;;                                        # MZ
+        macos)   [[ "$magic" == cffaedfe* || "$magic" == cafebabe* || "$magic" == feedface* || "$magic" == feedfacf* ]] || return 1 ;;  # Mach-O
+        *)       [[ "$magic" == 7f454c46* ]] || return 1 ;;                                    # \x7fELF
+    esac
+    return 0
+}
+
+# A cached binary is usable only if its recorded release tag matches the
+# currently-resolved latest tag AND it passes the integrity check.
+cached_binary_usable() {
+    local path="$1" tag="$2" cached=""
+    [ -f "$path" ] || return 1
+    [ -f "$path.tag" ] || return 1
+    cached=$(cat "$path.tag" 2>/dev/null)
+    [ "$cached" = "$tag" ] || return 1
+    binary_integrity_ok "$path"
+}
+
+# Download, extract, lift (rename to the canonical cache name), verify, and
+# record the release tag next to the binary so later runs can detect a stale
+# cache. Relies on the resolve_* globals: MINER_DIR, BINARY_PATH, ARCHIVE_NAME,
+# ARCHIVE_BINARY, DOWNLOAD_URL, TAG.
+fetch_binary() {
+    local archive_path="$MINER_DIR/$ARCHIVE_NAME" found=""
+    echo "Downloading $ARCHIVE_NAME..." >&2
+    curl -fL "$DOWNLOAD_URL" -o "$archive_path" || { echo "${C_ERR}[x] Download failed${C_RESET}" >&2; return 1; }
+    echo "Extracting..." >&2
+    case "$ARCHIVE_NAME" in
+        *.zip)    unzip -o "$archive_path" -d "$MINER_DIR" >/dev/null 2>&1 || { echo "${C_ERR}[x] Extraction failed${C_RESET}" >&2; rm -f "$archive_path"; return 1; } ;;
+        *.tar.gz|*.tgz) tar -xzf "$archive_path" -C "$MINER_DIR" || { echo "${C_ERR}[x] Extraction failed${C_RESET}" >&2; rm -f "$archive_path"; return 1; } ;;
+        *.tar)    tar -xf "$archive_path" -C "$MINER_DIR" || { echo "${C_ERR}[x] Extraction failed${C_RESET}" >&2; rm -f "$archive_path"; return 1; } ;;
+    esac
+    rm -f "$archive_path"
+    # Lift binary if nested (rename to the canonical cache name)
+    found=$(find "$MINER_DIR" -type f -name "$ARCHIVE_BINARY" 2>/dev/null | head -1)
+    if [ -n "$found" ] && [ "$(dirname "$found")" != "$MINER_DIR" ]; then
+        echo "Lifting binary..." >&2
+        cp "$found" "$BINARY_PATH"
+    fi
+    if [ ! -f "$BINARY_PATH" ]; then
+        echo "${C_ERR}[x] Binary '$(basename "$BINARY_PATH")' not found after extraction${C_RESET}" >&2
+        find "$MINER_DIR" -type f >&2
+        return 1
+    fi
+    chmod +x "$BINARY_PATH" 2>/dev/null || true
+    if ! binary_integrity_ok "$BINARY_PATH"; then
+        echo "${C_ERR}[x] Extracted binary '$BINARY_PATH' failed integrity check${C_RESET}" >&2
+        rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
+        return 1
+    fi
+    # Record the release tag so future runs can detect a stale cache.
+    printf '%s\n' "$TAG" > "$BINARY_PATH.tag"
+}
+
 # ── Hardware detection ──
 has_nvidia_gpu() {
     command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1
@@ -571,32 +636,25 @@ if $BENCH_MODE; then
         MINER_DIR="$BIN_DIR/$id"
         mkdir -p "$MINER_DIR"
         BINARY_PATH="$MINER_DIR/$bname"
+        # Resolve always (needed for the version-aware cache check).
+        REPO="$repo"; HOST="$host"; BRANCH="$branch"; RELEASE_PATH="$rpath"; ASSET_PATTERN="$pattern"
+        case "$HOST" in
+            gitlab-release) resolve_gitlab_release ;;
+            gitlab-branch)  resolve_gitlab_branch ;;
+            *)              resolve_github ;;
+        esac
+        if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
+            echo "  ${C_ERR}[x] $name: no matching asset${C_RESET}"; return
+        fi
         if [ ! -f "$BINARY_PATH" ]; then
-            REPO="$repo"; HOST="$host"; BRANCH="$branch"; RELEASE_PATH="$rpath"; ASSET_PATTERN="$pattern"
-            case "$HOST" in
-                gitlab-release) resolve_gitlab_release ;;
-                gitlab-branch)  resolve_gitlab_branch ;;
-                *)              resolve_github ;;
-            esac
-            if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
-                echo "  ${C_ERR}[x] $name: no matching asset${C_RESET}"; return
-            fi
             echo "  ${C_DIM}[fetch] $name ($TAG)${C_RESET}"
-            ARCHIVE_PATH="$MINER_DIR/$ARCHIVE_NAME"
-            if ! curl -fL "$DOWNLOAD_URL" -o "$ARCHIVE_PATH" 2>/dev/null; then
-                echo "  ${C_ERR}[x] $name: download failed${C_RESET}"; return
-            fi
-            case "$ARCHIVE_NAME" in
-                *.zip) unzip -o "$ARCHIVE_PATH" -d "$MINER_DIR" >/dev/null 2>&1 || true ;;
-                *.tar.gz|*.tgz) tar -xzf "$ARCHIVE_PATH" -C "$MINER_DIR" || true ;;
-                *.tar) tar -xf "$ARCHIVE_PATH" -C "$MINER_DIR" || true ;;
-            esac
-            rm -f "$ARCHIVE_PATH"
-            FOUND=$(find "$MINER_DIR" -type f -name "$abin" 2>/dev/null | head -1)
-            if [ -n "$FOUND" ] && [ "$(dirname "$FOUND")" != "$MINER_DIR" ]; then
-                cp "$FOUND" "$MINER_DIR/"
-            fi
-            chmod +x "$BINARY_PATH" 2>/dev/null || true
+            ARCHIVE_BINARY="$abin"
+            if ! fetch_binary; then echo "  ${C_ERR}[x] $name: fetch failed${C_RESET}"; return; fi
+        elif ! cached_binary_usable "$BINARY_PATH" "$TAG"; then
+            echo "  ${C_DIM}[re-fetch] $name: cached binary stale or corrupt${C_RESET}"
+            rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
+            ARCHIVE_BINARY="$abin"
+            if ! fetch_binary; then echo "  ${C_ERR}[x] $name: fetch failed${C_RESET}"; return; fi
         fi
         if [ ! -f "$BINARY_PATH" ]; then
             echo "  ${C_ERR}[x] $name: binary not found after extraction${C_RESET}"; return
@@ -869,31 +927,20 @@ if $DRY_RUN; then
     exit 0
 fi
 
-# ── Download & extract ──
+# ── Download & extract (version-aware cache: a stale or corrupt cached
+#    binary is re-downloaded instead of being used forever) ──
 MINER_DIR="$BIN_DIR/$MINER_ID"
 mkdir -p "$MINER_DIR"
 BINARY_PATH="$MINER_DIR/$BINARY_NAME"
 
 if [ ! -f "$BINARY_PATH" ]; then
-    ARCHIVE_PATH="$MINER_DIR/$ARCHIVE_NAME"
-    echo "Downloading $ARCHIVE_NAME..." >&2
-    curl -fL "$DOWNLOAD_URL" -o "$ARCHIVE_PATH" || { echo "${C_ERR}[x] Download failed${C_RESET}"; exit 1; }
-    echo "Extracting..." >&2
-    case "$ARCHIVE_NAME" in
-        *.zip)    unzip -o "$ARCHIVE_PATH" -d "$MINER_DIR" ;;
-        *.tar.gz|*.tgz) tar -xzf "$ARCHIVE_PATH" -C "$MINER_DIR" ;;
-        *.tar)    tar -xf "$ARCHIVE_PATH" -C "$MINER_DIR" ;;
-    esac
-    rm -f "$ARCHIVE_PATH"
-    # Lift binary if nested (rename to canonical name)
-    FOUND=$(find "$MINER_DIR" -type f -name "$ARCHIVE_BINARY" 2>/dev/null | head -1)
-    if [ -n "$FOUND" ] && [ "$(dirname "$FOUND")" != "$MINER_DIR" ]; then
-        echo "Lifting binary..." >&2
-        cp "$FOUND" "$BINARY_PATH"
-    fi
-    chmod +x "$BINARY_PATH" 2>/dev/null || true
+    fetch_binary || exit 1
+elif ! cached_binary_usable "$BINARY_PATH" "$TAG"; then
+    echo "${C_ERR}[x] Cached binary is stale or corrupt; re-downloading${C_RESET}" >&2
+    rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
+    fetch_binary || exit 1
 else
-    echo "${C_OK}[*] Using cached binary: $BINARY_PATH${C_RESET}" >&2
+    echo "${C_OK}[*] Using cached binary: $BINARY_PATH ($TAG)${C_RESET}" >&2
 fi
 
 if [ ! -f "$BINARY_PATH" ]; then
