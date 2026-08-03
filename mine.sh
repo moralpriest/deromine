@@ -26,6 +26,7 @@ RECONFIGURE=false
 show_help() {
     cat <<'EOF'
 Usage: deromine [options]
+  cross-platform DERO miner launcher
 
   --version              Show version and exit
   --reconfigure          Re-run setup: ask for wallet, node, threads again
@@ -40,6 +41,8 @@ Usage: deromine [options]
   --dry-run              Resolve release and print command, do not launch
   --benchmark            Benchmark all supported miners
   --bench-time=<sec>     Benchmark seconds per miner (default 30)
+  --output-dir=<dir>     Where binaries are stored (default ./bin)
+  --config=<path>        Config file (default ./config.json)
   -h | --help | /?       Show this help
 
 Examples:
@@ -63,6 +66,8 @@ while [[ $# -gt 0 ]]; do
         --delay=*) RESTART_DELAY="${1#*=}"; shift ;;
         --benchmark) BENCH_MODE=true; shift ;;
         --bench-time=*) BENCH_TIME="${1#*=}"; shift ;;
+        --output-dir=*) BIN_DIR="${1#*=}"; shift ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
         --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
         -h|--help|help|/\?) show_help; exit 0 ;;
         --version) echo "deromine 1.0.0"; exit 0 ;;
@@ -74,19 +79,6 @@ done
 # ── Dev fee override: --dev-fee flag wins over config.json ──
 if [ -z "$DEV_FEE_OVERRIDE" ] && [ -f "$CONFIG_FILE" ]; then
     DEV_FEE_OVERRIDE=$(jq -r '.dev_fee // ""' "$CONFIG_FILE")
-fi
-
-# ── Reconfigure: re-run the setup prompts from scratch ──
-# Moves the current config aside (to config.bak, the default-wallet source the
-# prompts already read) and deletes it, so wallet/daemon/threads are all asked
-# again instead of being reused from disk.
-if [ "$RECONFIGURE" = true ]; then
-    if [ -f "$CONFIG_FILE" ]; then
-        cp -f "$CONFIG_FILE" "$PROJECT_DIR/config.bak" && rm -f "$CONFIG_FILE"
-        echo "[*] Previous config backed up to $PROJECT_DIR/config.bak; starting fresh setup" >&2
-    else
-        echo "[*] No existing config to reset; starting fresh setup" >&2
-    fi
 fi
 
 # ── Detect platform ──
@@ -160,15 +152,79 @@ tmo() {
     fi
 }
 
-# ── jq check ──
+# ── jq check + startup validation ──
 if ! command -v jq &>/dev/null; then
     echo "${C_ERR}[x] jq required. Install: apt install jq (or brew install jq)${C_RESET}"
     exit 1
 fi
 
+validate_catalog_file() {
+    local path="$1"
+    if [ ! -f "$path" ]; then
+        echo "${C_ERR:-}[x] Catalog not found: $path${C_RESET:-}" >&2
+        return 1
+    fi
+    if ! jq -e '
+        if type != "object" then false
+        elif (.miners | type) != "array" or (.miners | length) == 0 then false
+        elif (.daemons | type) != "array" or (.daemons | length) == 0 then false
+        elif ([.miners[].id] | length) != ([.miners[].id] | unique | length) then false
+        elif any(.miners[];
+            ((.id | type) != "string") or ((.id | length) == 0) or
+            ((.name | type) != "string") or ((.name | length) == 0) or
+            ((.binary | type) != "string") or ((.binary | length) == 0) or
+            ((.repo | type) != "string") or ((.repo | length) == 0) or
+            ((.fee | type) != "string") or ((.assets | type) != "array") or
+            ((.assets | length) == 0) or any(.assets[];
+                ((.os | type) != "string") or ((.os | length) == 0) or
+                ((.arch | type) != "string") or ((.arch | length) == 0) or
+                ((.pattern | type) != "string") or ((.pattern | length) == 0))) then false
+        elif any(.daemons[];
+            ((.name | type) != "string") or ((.name | length) == 0) or
+            ((.url | type) != "string") or ((.url | length) == 0)) then false
+        else true end
+    ' "$path" >/dev/null 2>&1; then
+        echo "${C_ERR:-}[x] Invalid catalog: $path${C_RESET:-}" >&2
+        echo "${C_DIM:-}    Expected miners[] with id/name/binary/repo/fee/assets and daemons[] with name/url.${C_RESET:-}" >&2
+        return 1
+    fi
+}
+
+validate_config_file() {
+    local path="$1"
+    if [ ! -f "$path" ]; then return 0; fi
+    if ! jq -e '
+        if type != "object" then false
+        elif (has("wallet_address") and ((.wallet_address | type) != "string")) then false
+        elif (has("daemon_url") and ((.daemon_url | type) != "string")) then false
+        elif (has("thread_count") and (((.thread_count | type) != "number") or (.thread_count != (.thread_count | floor)) or (.thread_count < 0) or (.thread_count > 256))) then false
+        elif (has("dev_fee") and ((.dev_fee | type) != "string" and (.dev_fee | type) != "number")) then false
+        else true end
+    ' "$path" >/dev/null 2>&1; then
+        echo "${C_ERR:-}[x] Invalid config: $path${C_RESET:-}" >&2
+        echo "${C_DIM:-}    Expected wallet_address/daemon_url strings and thread_count as an integer from 0 to 256.${C_RESET:-}" >&2
+        return 1
+    fi
+}
+
+if ! validate_catalog_file "$MINERS_FILE"; then exit 1; fi
+if ! validate_config_file "$CONFIG_FILE"; then exit 1; fi
+
+# ── Reconfigure: re-run the setup prompts from scratch ──
+# Validate first so a malformed config is reported instead of being silently
+# moved to config.bak before the user sees the actionable error.
+if [ "$RECONFIGURE" = true ]; then
+    if [ -f "$CONFIG_FILE" ]; then
+        cp -f "$CONFIG_FILE" "$PROJECT_DIR/config.bak" && rm -f "$CONFIG_FILE"
+        echo "[*] Previous config backed up to $PROJECT_DIR/config.bak; starting fresh setup" >&2
+    else
+        echo "[*] No existing config to reset; starting fresh setup" >&2
+    fi
+fi
+
 # ── Read catalog ──
 read_catalog() {
-    jq -c '.miners[]' "$MINERS_FILE" 2>/dev/null || { echo "${C_ERR}[x] Failed to parse $MINERS_FILE${C_RESET}"; exit 1; }
+    jq -c '.miners[]' "$MINERS_FILE" 2>/dev/null || { echo "${C_ERR}[x] Failed to read $MINERS_FILE${C_RESET}"; exit 1; }
 }
 
 get_miner_by_id() {
@@ -664,7 +720,7 @@ select_daemon() {
     done < <(jq -c '.daemons[]' "$MINERS_FILE")
     while true; do
         echo "" >&2
-        echo "${C_HDR}Select daemon endpoint:${C_RESET}" >&2
+        draw_section "SELECT DAEMON ENDPOINT" >&2
         draw_daemon_table "${daemon_jsons[@]:-}" >&2
         printf "Choice (1-%d), c for a custom node, q to quit: " "${#daemon_jsons[@]}" >&2
         read -r dchoice || return 1
@@ -693,14 +749,29 @@ select_daemon() {
 draw_banner() {
     local width="${COLUMNS:-80}"
     local title="deromine"
-    local inner=$((width > 12 ? width - 4 : 12))
-    local top bot
+    local subtitle="cross-platform DERO miner launcher"
+    local inner=$((width - 4))
+    [ "$inner" -lt 30 ] && inner=30
+    local top bot title_pad subtitle_pad
     top="${TL}$(rep "$H" "$inner")${TR}"
     bot="${BL}$(rep "$H" "$inner")${BR}"
+    title_pad=$((inner - 4 - ${#title})); [ "$title_pad" -lt 0 ] && title_pad=0
+    subtitle_pad=$((inner - 4 - ${#subtitle})); [ "$subtitle_pad" -lt 0 ] && subtitle_pad=0
     echo "${C_BANNER}$top${C_RESET}"
-    echo "${C_BANNER}${V}  ${C_NAME}${title}${C_RESET}${C_BANNER}$(rep ' ' "$((inner - 2 - ${#title}))")${V}${C_RESET}"
+    echo "${C_BANNER}${V}  ${C_NAME}${title}${C_RESET}${C_BANNER}$(rep ' ' "$title_pad")  ${V}${C_RESET}"
+    echo "${C_BANNER}${V}  ${C_DIM}${subtitle}${C_RESET}${C_BANNER}$(rep ' ' "$subtitle_pad")  ${V}${C_RESET}"
     echo "${C_BANNER}$bot${C_RESET}"
+    echo "${C_DIM}  [ MENU ]  list  ·  benchmark  ·  help  ·  quit${C_RESET}"
     echo ""
+}
+
+draw_section() {
+    local label="$1" width="${COLUMNS:-80}" inner
+    inner=$((width - 4))
+    [ "$inner" -lt 30 ] && inner=30
+    echo "${C_BORDER}${T_LT}$(rep "$T_H" "$((inner - 2))")${T_RT}${C_RESET}"
+    local label_pad=$((inner - 6 - ${#label})); [ "$label_pad" -lt 0 ] && label_pad=0
+    printf '%b\n' "${C_HDR}${T_V}  $label$(rep ' ' "$label_pad")  ${T_V}${C_RESET}"
 }
 
 gitlab_id() {
@@ -831,7 +902,8 @@ if $BENCH_MODE; then
     fi
 
     draw_banner
-    echo "${C_HDR}Benchmarking ${#SUPPORTED[@]} miners (~${BENCH_TIME}s each, ${THREAD_COUNT} threads)...${C_RESET}"
+    draw_section "BENCHMARK  ·  ${#SUPPORTED[@]} MINERS  ·  ${BENCH_TIME}s EACH"
+    echo "${C_HDR}  Running with ${THREAD_COUNT} threads...${C_RESET}"
 
     bench_miner() {
         local m="$1" id name fee repo host branch rpath pattern bname abin out raw
@@ -972,7 +1044,7 @@ fi
 # ── List mode ──
 if [ "$MINER_ID" = "list" ]; then
     draw_banner
-    echo "${C_HDR}Available miners on $OS/$ARCH:${C_RESET}"
+    draw_section "MINER CATALOG  ·  $OS/$ARCH"
     draw_miner_table "${SUPPORTED[@]:-}"
     exit 0
 fi
@@ -980,7 +1052,7 @@ fi
 # ── Interactive menu ──
 if [ -z "$MINER_ID" ] || [ "$MINER_ID" = "interactive" ]; then
     draw_banner
-    echo "${C_HDR}Select a miner:${C_RESET}" >&2
+    draw_section "SELECT A MINER  ·  $OS/$ARCH" >&2
     draw_miner_table "${SUPPORTED[@]:-}" >&2
     if [ "${#SUPPORTED[@]}" -eq 0 ]; then
         echo "${C_ERR}[x] No miners available on this host${C_RESET}" >&2
@@ -1089,6 +1161,10 @@ jq -n \
     --argjson t "$THREAD_COUNT" \
     '{wallet_address: $w, daemon_url: $d, thread_count: $t}' > "$CONFIG_FILE"
 echo "${C_OK}[*] Config saved to $CONFIG_FILE${C_RESET}" >&2
+draw_section "CONFIGURATION READY" >&2
+printf '%b\n' "${C_DIM}${T_V}  wallet  ${C_NAME}${WALLET_ADDR:0:8}…${WALLET_ADDR: -6}${C_RESET}"
+printf '%b\n' "${C_DIM}${T_V}  daemon  ${C_NAME}${DAEMON_URL}${C_RESET}"
+printf '%b\n' "${C_DIM}${T_V}  threads ${C_NAME}${THREAD_COUNT}${C_RESET}"
 
 # ── Resolve download ──
 REPO=$(echo "$MINER_JSON" | jq -r '.repo')
@@ -1204,15 +1280,22 @@ term_w="${COLUMNS:-80}"
 
 summary_line() {
     local label="$1" value="$2"
-    local pad=$((LW - ${#label} - 2))
+    local value_width=$((LW - ${#label} - 4))
+    [ "$value_width" -lt 4 ] && value_width=4
+    if [ "${#value}" -gt "$value_width" ]; then
+        value="${value:0:$((value_width - 1))}…"
+    fi
+    local pad=$((LW - ${#label} - 4))
     printf '%b' "${C_OK}${V}${C_RESET}  ${C_NAME}$label${C_RESET}  ${C_BIN}$(printf '%-*s' "$pad" "$value")${C_RESET}${C_OK}${V}${C_RESET}\n"
 }
 echo ""
 echo "${C_OK}${TL}$(rep "$H" "$LW")${TR}${C_RESET}"
-summary_line "Miner" "$MINER_NAME"
-summary_line "Binary" "$BINARY_PATH"
+  printf '%b\n' "${C_OK}${V}${C_RESET}  ${C_NAME}LAUNCH PLAN${C_RESET}$(rep ' ' "$((LW - 13))")${C_OK}${V}${C_RESET}"
+  echo "${C_OK}${T_LT}$(rep "$T_H" "$LW")${T_RT}${C_RESET}"
+  summary_line "Miner" "$MINER_NAME"
+  summary_line "Binary" "$BINARY_PATH"
 summary_line "Daemon" "$DAEMON_ADDR"
-summary_line "Wallet" "$WALLET_ADDR"
+summary_line "Wallet" "${WALLET_ADDR:0:8}…${WALLET_ADDR: -6}"
 summary_line "Threads" "$THREAD_COUNT"
 echo "${C_OK}${BL}$(rep "$H" "$LW")${BR}${C_RESET}"
 echo ""

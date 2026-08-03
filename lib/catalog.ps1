@@ -1,14 +1,49 @@
-function Read-Catalog {
+function Test-CatalogSchema {
     param([string]$Path)
     if (-not (Test-Path $Path)) {
         Write-Host "[x] Catalog not found: $Path" -ForegroundColor Red
-        return $null
+        return $false
     }
+    try {
+        $json = Get-Content $Path -Raw -Encoding UTF8
+        $catalog = ConvertFrom-Json $json
+        if ($null -eq $catalog -or $catalog -isnot [PSCustomObject]) { throw 'root must be a JSON object' }
+        if ($null -eq $catalog.miners -or @($catalog.miners).Count -eq 0) { throw 'miners must be a non-empty array' }
+        if ($null -eq $catalog.daemons -or @($catalog.daemons).Count -eq 0) { throw 'daemons must be a non-empty array' }
+        $ids = @{}
+        foreach ($m in @($catalog.miners)) {
+            foreach ($field in @('id', 'name', 'binary', 'repo', 'fee')) {
+                if (-not $m.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace([string]$m.$field)) { throw "miner is missing '$field'" }
+            }
+            if ($ids.ContainsKey([string]$m.id)) { throw "duplicate miner id '$($m.id)'" }
+            $ids[[string]$m.id] = $true
+            if ($null -eq $m.assets -or @($m.assets).Count -eq 0) { throw "miner '$($m.id)' must have assets" }
+            foreach ($a in @($m.assets)) {
+                foreach ($field in @('os', 'arch', 'pattern')) {
+                    if (-not $a.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace([string]$a.$field)) { throw "miner '$($m.id)' asset is missing '$field'" }
+                }
+            }
+        }
+        foreach ($d in @($catalog.daemons)) {
+            if (-not $d.PSObject.Properties['name'] -or [string]::IsNullOrWhiteSpace([string]$d.name) -or
+                -not $d.PSObject.Properties['url'] -or [string]::IsNullOrWhiteSpace([string]$d.url)) { throw 'daemon entries require name and url' }
+        }
+        return $true
+    } catch {
+        Write-Host "[x] Invalid catalog '$Path': $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host '    Expected non-empty miners[] and daemons[] with required fields.' -ForegroundColor DarkYellow
+        return $false
+    }
+}
+
+function Read-Catalog {
+    param([string]$Path)
+    if (-not (Test-CatalogSchema $Path)) { return $null }
     try {
         $json = Get-Content $Path -Raw -Encoding UTF8
         return ConvertFrom-Json $json
     } catch {
-        Write-Host "[x] Failed to parse catalog: $_" -ForegroundColor Red
+        Write-Host "[x] Failed to parse catalog '$Path': $($_.Exception.Message)" -ForegroundColor Red
         return $null
     }
 }

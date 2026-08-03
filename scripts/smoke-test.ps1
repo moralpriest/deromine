@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Split-Path -Parent $scriptDir
 $minersJsonPath = Join-Path $projectDir 'miners.json'
+$libDir = Join-Path $projectDir 'lib'
 
 $passed = 0
 $failed = 0
@@ -54,15 +55,49 @@ if ($catalog) {
     }
 }
 
+# 2b. The same startup validators used by mine.ps1 reject malformed data
+# with a readable message rather than allowing a later stack trace.
+Write-Host ''
+Write-Host '2b. Startup schema validation:' -ForegroundColor Yellow
+try {
+    . (Join-Path $libDir 'config.ps1')
+    . (Join-Path $libDir 'catalog.ps1')
+    $tmpSchema = Join-Path ([System.IO.Path]::GetTempPath()) ('deromine-schema-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmpSchema -Force | Out-Null
+    $badCatalog = Join-Path $tmpSchema 'bad-catalog.json'
+    $badConfig = Join-Path $tmpSchema 'bad-config.json'
+    Set-Content -LiteralPath $badCatalog -Value '{"miners":[],"daemons":[]}' -NoNewline
+    Set-Content -LiteralPath $badConfig -Value '{"thread_count":"oops"}' -NoNewline
+    Assert-True '  malformed catalog rejected' (-not (Test-CatalogSchema $badCatalog))
+    Assert-True '  malformed config rejected' (-not (Test-ConfigSchema $badConfig))
+    Assert-True '  repository catalog passes schema' (Test-CatalogSchema $minersJsonPath)
+    $configPathForTest = Join-Path $projectDir 'config.json'
+    Assert-True '  repository config passes schema' (Test-ConfigSchema $configPathForTest)
+} catch {
+    Assert-True '  startup schema validation works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+} finally {
+    Remove-Item $tmpSchema -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # 3. Helper modules load without errors
 Write-Host ''
 Write-Host '3. Helper modules:' -ForegroundColor Yellow
-$libDir = Join-Path $projectDir 'lib'
 $helpers = @('config.ps1', 'catalog.ps1', 'platform.ps1', 'download.ps1', 'run.ps1', 'ui.ps1')
 foreach ($h in $helpers) {
     $hPath = Join-Path $libDir $h
     Assert-True "  $h exists" (Test-Path $hPath)
 }
+
+# 3a. Reconfigure and CLI surface are present on the PowerShell path.
+Write-Host ''
+Write-Host '3a. CLI parity:' -ForegroundColor Yellow
+$mineTextForCli = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+$uiTextForCli = Get-Content (Join-Path $libDir 'ui.ps1') -Raw
+Assert-True '  --reconfigure is wired' ($mineTextForCli -match '--reconfigure' -and $mineTextForCli -match 'config.bak')
+Assert-True '  --benchmark is documented in help' ($uiTextForCli -match '--benchmark' -and $uiTextForCli -match '--bench-time')
+Assert-True '  help documents config/output controls' ($uiTextForCli -match '--config=<path>' -and $uiTextForCli -match '--output-dir=<dir>')
+Assert-True '  custom node prompt remains available' ($uiTextForCli -match 'custom node' -and $mineTextForCli -match 'Read-DaemonEndpoint')
 
 # 3b. --version works
 Write-Host ''

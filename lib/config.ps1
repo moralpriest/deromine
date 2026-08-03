@@ -1,3 +1,35 @@
+function Test-ConfigSchema {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $true }
+    try {
+        $json = Get-Content $Path -Raw -Encoding UTF8
+        $cfg = ConvertFrom-Json $json
+        if ($null -eq $cfg -or $cfg -isnot [PSCustomObject]) { throw 'root must be a JSON object' }
+        foreach ($name in @('wallet_address', 'daemon_url')) {
+            $prop = $cfg.PSObject.Properties[$name]
+            if ($prop -and $null -ne $prop.Value -and $prop.Value -isnot [string]) {
+                throw "$name must be a string"
+            }
+        }
+        $threads = $cfg.PSObject.Properties['thread_count']
+        if ($threads) {
+            $value = 0
+            if (-not [int]::TryParse([string]$threads.Value, [ref]$value) -or $value -lt 0 -or $value -gt 256 -or [double]$threads.Value -ne $value) {
+                throw 'thread_count must be an integer from 0 to 256'
+            }
+        }
+        $fee = $cfg.PSObject.Properties['dev_fee']
+        if ($fee -and $null -ne $fee.Value -and $fee.Value -isnot [string] -and $fee.Value -isnot [int] -and $fee.Value -isnot [double]) {
+            throw 'dev_fee must be a string or number'
+        }
+        return $true
+    } catch {
+        Write-Host "[x] Invalid config '$Path': $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host '    Expected wallet_address/daemon_url strings and thread_count as an integer from 0 to 256.' -ForegroundColor DarkYellow
+        return $false
+    }
+}
+
 function Read-Config {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return $null }
@@ -5,7 +37,10 @@ function Read-Config {
         $json = Get-Content $Path -Raw -Encoding UTF8
         $cfg = ConvertFrom-Json $json
         return $cfg
-    } catch { return $null }
+    } catch {
+        Write-Host "[x] Failed to parse config '$Path': $($_.Exception.Message)" -ForegroundColor Red
+        return $null
+    }
 }
 
 function Write-Config {

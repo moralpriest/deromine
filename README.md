@@ -205,6 +205,8 @@ pwsh ./mine.ps1 --miner=tnn --dev-fee=1
 | `--dry-run` | Resolve release + print command without launching |
 | `--reconfigure` | Re-run setup: ask for wallet, node, threads again (old config kept in `config.bak`) |
 | `--benchmark` / `--bench-time=...` | Benchmark mode |
+| `--output-dir=...` | Where binaries are stored (default `bin/`) |
+| `--config=...` | Config path (default `config.json`) |
 | `-h` / `--help` / `/?` | Show usage and exit |
 
 ```bash
@@ -319,13 +321,17 @@ change, without keeping manual notes. Results are compared by miner id.
 1. **Catalog (`miners.json`)** defines each miner: release repo (GitHub or GitLab),
    per-OS/arch asset patterns, CLI flag map, dev fee, hardware requirements, risk
    rating, and the list of known daemon endpoints.
-2. **Platform detection** uses PowerShell auto-vars (`$IsLinux`, `$IsWindows`,
+2. **Startup validation** checks `miners.json` and the selected config file before
+   entering list, benchmark, or mining modes. Malformed JSON or missing required
+   fields fails with a short actionable message instead of a property-access stack
+   trace. The Bash and PowerShell paths enforce the same required catalog fields.
+3. **Platform detection** uses PowerShell auto-vars (`$IsLinux`, `$IsWindows`,
    `$IsMacOS`) or `uname` to determine OS/architecture.
-3. **Binary resolution** prefers a per-asset binary override (for OS-specific
+4. **Binary resolution** prefers a per-asset binary override (for OS-specific
    names), then the miner's `binary` property, then a legacy fallback map for the
    Dirtybird ids. `.exe` is appended on Windows.
-4. **Asset matching** filters `assets[]` by `os`, `arch`, and `pattern` glob.
-5. **Download** queries the GitHub/GitLab latest-release API at runtime, matches
+5. **Asset matching** filters `assets[]` by `os`, `arch`, and `pattern` glob.
+6. **Download** queries the GitHub/GitLab latest-release API at runtime, matches
    the asset by pattern, extracts it, and places the binary in `bin/<miner-id>/`.
    Nested binaries are lifted to the top-level folder together with their
    dependencies (Windows releases ship DLLs next to the exe, e.g.
@@ -335,11 +341,11 @@ change, without keeping manual notes. Results are compared by miner id.
    ELF/Mach-O/PE magic, non-trivial size) before use. A stale or corrupt cached
    binary is silently re-downloaded — so a new upstream release or an
    interrupted download can never leave a broken miner in place.
-6. **Command building** uses the miner's `flags` map from the catalog (daemon,
+7. **Command building** uses the miner's `flags` map from the catalog (daemon,
    wallet, threads, coin, port, dev fee), defaulting to the Dirtybird short-flag
    convention (`-d`, `-w`, `-t`). Any `http(s)://` scheme is stripped from the
    daemon address.
-7. **Mining** launches the binary in the foreground with the built arguments.
+8. **Mining** launches the binary in the foreground with the built arguments.
    `--auto-restart` wraps it in a restart loop (max restarts, delay). Launch
    outcomes are remembered per miner in `bin/<id>/`: `.fails` records fast
    startup failures (nonzero exit within ~10s — missing DLLs, incompatible
@@ -352,7 +358,7 @@ change, without keeping manual notes. Results are compared by miner id.
    hides a normal miner until it succeeds again; self-test-gated GPU miners
    (go-gpu) are listed only once `.ok` exists. `--miner=<id>` still force-runs
    a hidden miner.
-8. **Benchmark mode** runs each supported miner for a fixed window, parses the
+9. **Benchmark mode** runs each supported miner for a fixed window, parses the
    reported hashrate, and prints a comparison table.
 
 ## Testing
@@ -365,7 +371,10 @@ pwsh ./scripts/smoke-test.ps1     # PowerShell path: catalog, modules, resolutio
 bash ./scripts/smoke-test.sh      # bash path: catalog, version, list mode
 ```
 
-Both suites fail with exit code 1 on any regression.
+Both suites fail with exit code 1 on any regression. They cover the shared
+catalog/config schema boundary, custom daemon normalization, `--reconfigure` wiring,
+Defender helpers, cache integrity, launch outcomes, and the platform-specific
+benchmark/help surfaces.
 
 ## Troubleshooting
 

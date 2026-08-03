@@ -36,6 +36,21 @@ while IFS= read -r mid; do
 done < <(jq -r '.miners[].id' miners.json)
 if [ "$missing" -eq 0 ]; then pass "all miners have required fields"; else fail "all miners have required fields"; fi
 
+# 2b. Startup schema validation rejects malformed catalog/config with a clear
+# message. Extracts the REAL validators from mine.sh.
+echo ""
+echo "2b. Startup schema validation:"
+eval "$(sed -n '/^validate_catalog_file()/,/^}/p' mine.sh)"
+eval "$(sed -n '/^validate_config_file()/,/^}/p' mine.sh)"
+tmp_schema=$(mktemp -d)
+printf '{"miners":[],"daemons":[]}' > "$tmp_schema/bad-catalog.json"
+printf '{"thread_count":"oops"}' > "$tmp_schema/bad-config.json"
+if (set +e; validate_catalog_file "$tmp_schema/bad-catalog.json" >/dev/null 2>&1); then fail "malformed catalog rejected"; else pass "malformed catalog rejected"; fi
+if (set +e; validate_config_file "$tmp_schema/bad-config.json" >/dev/null 2>&1); then fail "malformed config rejected"; else pass "malformed config rejected"; fi
+if (set +e; validate_catalog_file miners.json >/dev/null 2>&1 && validate_config_file config.json >/dev/null 2>&1); then pass "repository catalog/config pass schema"; else fail "repository catalog/config pass schema"; fi
+rm -rf "$tmp_schema"
+unset -f validate_catalog_file validate_config_file
+
 # 3. --version works through the unified launcher
 echo ""
 echo "3. Version flag:"
@@ -53,6 +68,23 @@ if ./deromine --miner=list >/dev/null 2>&1; then
     pass "--miner=list exits 0"
 else
     fail "--miner=list exits 0"
+fi
+help_out=$(./deromine --help 2>&1)
+if [[ "$help_out" == *"--config=<path>"* && "$help_out" == *"--output-dir=<dir>"* ]]; then
+    pass "launcher help documents config/output controls"
+else
+    fail "launcher help documents config/output controls"
+fi
+bash_help=$(bash ./mine.sh --help 2>&1)
+if [[ "$bash_help" == *"--config=<path>"* && "$bash_help" == *"--output-dir=<dir>"* ]]; then
+    pass "bash help documents config/output controls"
+else
+    fail "bash help documents config/output controls"
+fi
+if [[ "$bash_help" == *"cross-platform DERO miner launcher"* ]]; then
+    pass "bash help/banner has visual subtitle"
+else
+    fail "bash help/banner has visual subtitle"
 fi
 
 # 5. All catalog ids resolve a binary name for the current OS/arch
@@ -313,6 +345,11 @@ if [ "$dout" = "$first_daemon" ]; then pass "invalid number re-prompts, valid ac
 if printf 'q\n' | bash -c 'select_daemon' 2>/dev/null; then fail "q quits daemon selection"; else pass "q quits daemon selection"; fi
 call_sites=$(grep -c 'select_daemon' mine.sh)
 if [ "$call_sites" -ge 2 ]; then pass "mine.sh wires select_daemon into the flow"; else fail "mine.sh wires select_daemon into the flow ($call_sites refs)"; fi
+if grep -q -- '--reconfigure' mine.sh && grep -q 'config.bak' mine.sh; then
+    pass "mine.sh wires reconfigure backup flow"
+else
+    fail "mine.sh wires reconfigure backup flow"
+fi
 unset MINERS_FILE
 unset DEFAULT_DAEMON_PORT
 unset -f rep draw_daemon_table normalize_daemon_url valid_daemon_url select_daemon

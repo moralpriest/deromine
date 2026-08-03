@@ -9,6 +9,10 @@ foreach ($f in Get-ChildItem $libDir -Filter '*.ps1' | Sort-Object Name) {
     . $f.FullName
 }
 
+# ── Validate shared data before any mode can use it ──
+# Keep malformed catalog/config failures at the boundary so users get one
+# actionable message instead of a later property-access stack trace.
+
 # ── Defaults ──
 $daemonUrl       = 'http://node.derofoundation.org:10100'
 $daemonFlag      = $false
@@ -80,6 +84,10 @@ for ($i = 0; $i -lt $params.Count; $i++) {
         }
     }
 }
+
+# ── Startup validation ──
+if (-not (Test-CatalogSchema $minersJsonPath)) { exit 1 }
+if (-not (Test-ConfigSchema $configPath)) { exit 1 }
 
 # ── Dev fee override: --dev-fee flag wins over config.json ──
 $devFeeOverride = $devFee

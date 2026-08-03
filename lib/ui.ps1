@@ -19,18 +19,34 @@ function Get-BoxChars {
     if (Test-IsUnicodeTerminal) { return $script:UnicodeBox } else { return $script:AsciiBox }
 }
 
+function Format-UiValue {
+    param([string]$Value, [int]$MaxLength)
+    if ($MaxLength -lt 4) { return '' }
+    if ([string]::IsNullOrEmpty($Value)) { return '' }
+    if ($Value.Length -le $MaxLength) { return $Value }
+    return $Value.Substring(0, $MaxLength - 1) + '…'
+}
+
 function Write-Banner {
     $b = Get-BoxChars
     $title = 'deromine'
-    $width = [Math]::Min($title.Length + 8, (Get-TerminalWidth))
-    $pad = $width - 4
-    $topLine = $b.TopLeft + ($b.Horiz * $pad) + $b.TopRight
-    $titleRow = $b.Vert + '  ' + $title.PadRight($pad - 2) + $b.Vert
-    $botLine = $b.BotLeft + ($b.Horiz * $pad) + $b.BotRight
+    $subtitle = 'cross-platform DERO miner launcher'
+    $width = [Math]::Min((Get-TerminalWidth), 100)
+    $inner = [Math]::Max(30, $width - 2)
+    $titlePad = $inner - $title.Length - 6
+    $subtitlePad = $inner - $subtitle.Length - 6
+    if ($titlePad -lt 0) { $titlePad = 0 }
+    if ($subtitlePad -lt 0) { $subtitlePad = 0 }
+    $topLine = $b.TopLeft + ($b.Horiz * $inner) + $b.TopRight
+    $titleRow = $b.Vert + '  ' + $title + (' ' * $titlePad) + '  ' + $b.Vert
+    $subtitleRow = $b.Vert + '  ' + $subtitle + (' ' * $subtitlePad) + '  ' + $b.Vert
+    $botLine = $b.BotLeft + ($b.Horiz * $inner) + $b.BotRight
     Write-Host ''
     Write-Host $topLine -ForegroundColor Magenta
     Write-Host $titleRow -ForegroundColor White
+    Write-Host $subtitleRow -ForegroundColor DarkGray
     Write-Host $botLine -ForegroundColor Magenta
+    Write-Host '  [ MENU ]  list  ·  benchmark  ·  help  ·  quit' -ForegroundColor DarkGray
     Write-Host ''
 }
 
@@ -47,8 +63,15 @@ function Write-ConfigStatus {
         $mask = if ($Wallet.Length -ge 10) { "$($Wallet.Substring(0,8))…$($Wallet.Substring($Wallet.Length-6))" } else { $Wallet }
         $bits = @("daemon $Daemon", "threads $Threads$devFeeText", "wallet $mask")
     }
-    Write-Host ''
-    Write-Host ("  " + ($bits -join '  ·  ')) -ForegroundColor DarkGray
+    $b = Get-BoxChars
+    $lineWidth = [Math]::Max(20, [Math]::Min(76, (Get-TerminalWidth) - 4))
+    $line = $b.TblH * $lineWidth
+    Write-Host $line -ForegroundColor DarkCyan
+    Write-Host '  CONFIGURATION' -ForegroundColor DarkCyan
+    foreach ($bit in $bits) {
+        Write-Host ("  $($b.Bullet) $bit") -ForegroundColor DarkGray
+    }
+    Write-Host $line -ForegroundColor DarkCyan
     Write-Host ''
 }
 
@@ -85,6 +108,7 @@ function Show-Help {
 function Write-MinerTable {
     param([array]$Miners, [object]$Platform, [string]$BinDir = '', [string]$DevFee = '', [switch]$AsList)
     $b = Get-BoxChars
+    Write-Host ("  MINERS  ·  $($Platform.os)/$($Platform.arch)") -ForegroundColor DarkCyan
     $rows = @()
     foreach ($m in $Miners) {
         $asset = Get-MinerAsset $m $Platform.os $Platform.arch
@@ -274,11 +298,12 @@ function Read-DaemonEndpoint {
 function Write-LaunchSummary {
     param([object]$Miner, [string]$Binary, [string]$Daemon, [string]$Wallet, [int]$Threads, [string]$DevFee = '')
     $b = Get-BoxChars
+    $mask = if ($Wallet.Length -ge 14) { "$($Wallet.Substring(0,8))…$($Wallet.Substring($Wallet.Length-6))" } else { $Wallet }
     $rows = @(
         @{ Label = 'Miner';   Value = $Miner.name }
         @{ Label = 'Binary';  Value = $Binary }
         @{ Label = 'Daemon';  Value = $Daemon }
-        @{ Label = 'Wallet';  Value = $Wallet }
+        @{ Label = 'Wallet';  Value = $mask }
         @{ Label = 'Threads'; Value = "$Threads" }
     )
     if ($DevFee) { $rows += @{ Label = 'Dev fee'; Value = "$DevFee%" } }
@@ -288,17 +313,23 @@ function Write-LaunchSummary {
         if ($r.Label.Length -gt $maxLabel) { $maxLabel = $r.Label.Length }
         if ($r.Value.Length -gt $maxValue) { $maxValue = $r.Value.Length }
     }
-    $inner = $maxLabel + $maxValue + 5
-    $inner = [Math]::Min($inner, (Get-TerminalWidth) - 4)
+    $inner = [Math]::Max(30, $maxLabel + $maxValue + 7)
+    $inner = [Math]::Min($inner, [Math]::Max(30, (Get-TerminalWidth) - 4))
+    $valueWidth = [Math]::Max(4, $inner - $maxLabel - 5)
+    foreach ($r in $rows) { $r.Value = Format-UiValue ([string]$r.Value) $valueWidth }
     $topLine = $b.TopLeft + ($b.Horiz * $inner) + $b.TopRight
     $botLine = $b.BotLeft + ($b.Horiz * $inner) + $b.BotRight
     Write-Host ''
-    Write-Host $topLine -ForegroundColor Green
+    Write-Host ("$($b.TopLeft)$($b.Horiz * $inner)$($b.TopRight)") -ForegroundColor Green
+    $titleSpace = [Math]::Max(0, $inner - 15)
+    Write-Host ("$($b.Vert)  LAUNCH PLAN" + (' ' * $titleSpace) + $b.Vert) -ForegroundColor Green
+    Write-Host ($b.LTee + ($b.Horiz * $inner) + $b.RTee) -ForegroundColor Green
     foreach ($r in $rows) {
         $label = ([string]$r.Label).PadRight($maxLabel)
-        $value = ([string]$r.Value).PadRight($inner - $maxLabel - 3)
+        $value = ([string]$r.Value).PadRight($valueWidth)
         Write-Host $b.Vert -ForegroundColor Green -NoNewline
-        Write-Host "  $label  $value" -NoNewline
+        Write-Host "  $label  " -ForegroundColor White -NoNewline
+        Write-Host $value -ForegroundColor DarkGray -NoNewline
         Write-Host $b.Vert -ForegroundColor Green
     }
     Write-Host $botLine -ForegroundColor Green
@@ -320,5 +351,9 @@ function Write-Success {
 function Write-PromptHeader {
     param([string]$Message)
     $b = Get-BoxChars
-    Write-Host "`n$($b.Arrow) $Message" -ForegroundColor DarkCyan
+    $lineWidth = [Math]::Max(20, [Math]::Min(76, (Get-TerminalWidth) - 4))
+    $line = $b.TblH * $lineWidth
+    Write-Host "`n$line" -ForegroundColor DarkCyan
+    Write-Host "$($b.Arrow) $Message" -ForegroundColor Cyan
+    Write-Host $line -ForegroundColor DarkCyan
 }
