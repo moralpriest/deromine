@@ -301,6 +301,34 @@ function Test-BinaryIntegrity {
     }
 }
 
+# A freshly-extracted binary that FAILED the integrity check needs an
+# actionable explanation, not a dead-end error. On Windows, a binary that is
+# MISSING (rather than merely corrupt) right after a successful extraction is
+# almost always Windows Defender quarantining it — closed-source miners are
+# frequently false-positived (unsigned, CPU-heavy hashing). Anything else is
+# an interrupted/corrupt download.
+function Get-IntegrityFailureHint {
+    param([string]$Path, [string]$Os, [string]$MinerDir)
+    if ($Os -eq 'windows' -and -not (Test-Path -LiteralPath $Path)) {
+        return @"
+This is almost always Windows Defender quarantining the miner binary - a
+common false positive for closed-source miners (e.g. deroluna).
+Fix:
+  1. Windows Security > Virus & threat protection > Protection history
+     > find the detection > Actions > Restore the file
+  2. Stop it recurring: Windows Security > Virus & threat protection
+     > Manage settings > Exclusions > Add a folder > '$MinerDir'
+  3. Run deromine again - it re-downloads the miner.
+"@
+    }
+    return @"
+The download was incomplete or corrupt (e.g. an interrupted download).
+Remove the stale cache and retry:
+  Remove-Item '$MinerDir' -Recurse -Force
+Then run deromine again.
+"@
+}
+
 # A cached binary is usable only if it exists, its recorded release tag matches
 # the currently-resolved latest tag, and it passes the integrity check.
 function Test-CachedBinaryUsable {

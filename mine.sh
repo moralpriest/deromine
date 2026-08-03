@@ -368,6 +368,13 @@ fetch_binary() {
     chmod +x "$BINARY_PATH" 2>/dev/null || true
     if ! binary_integrity_ok "$BINARY_PATH"; then
         echo "${C_ERR}[x] Extracted binary '$BINARY_PATH' failed integrity check${C_RESET}" >&2
+        if [ "$OS" = "windows" ] && [ ! -f "$BINARY_PATH" ]; then
+            echo "${C_DIM}  Usually Windows Defender quarantining the miner (a false positive for${C_RESET}" >&2
+            echo "${C_DIM}  closed-source miners). Restore it in Windows Security > Protection${C_RESET}" >&2
+            echo "${C_DIM}  history, or add an exclusion for '$MINER_DIR', then re-run.${C_RESET}" >&2
+        else
+            echo "${C_DIM}  Incomplete/corrupt download. Remove '$MINER_DIR' and retry.${C_RESET}" >&2
+        fi
         rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
         return 1
     fi

@@ -410,7 +410,8 @@ if ($platform.os -ne 'windows') {
 
 if ($needsDownload) {
     if (-not (Test-BinaryIntegrity $binaryPath $platform.os)) {
-        Write-Error "Extracted binary '$binaryPath' failed integrity check"
+        Write-Host "`n[x] Extracted binary '$binaryName' failed integrity check:" -ForegroundColor Red
+        Write-Host (Get-IntegrityFailureHint -Path $binaryPath -Os $platform.os -MinerDir $minerDir) -ForegroundColor Yellow
         exit 1
     }
     # Record the release tag so future runs can detect a stale cache.

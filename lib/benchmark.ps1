@@ -121,6 +121,7 @@ function Get-MinerBinaryPath {
             }
             if (-not (Test-BinaryIntegrity $binaryPath $PlatformOs)) {
                 Write-Host "  [x] $($Miner.name): extracted binary failed integrity check" -ForegroundColor Red
+                Write-Host "      Incomplete/corrupt download. Remove-Item '$minerDir' -Recurse -Force and retry." -ForegroundColor DarkYellow
                 Remove-Item $binaryPath -Force -ErrorAction SilentlyContinue
                 Remove-Item "$binaryPath.tag" -Force -ErrorAction SilentlyContinue
                 return $null
@@ -128,6 +129,15 @@ function Get-MinerBinaryPath {
             # Record the release tag so future runs can detect a stale cache.
             try { Set-Content -LiteralPath "$binaryPath.tag" -Value $resolved.Tag -NoNewline -ErrorAction SilentlyContinue } catch {}
             return $binaryPath
+        }
+        # Reached only right after a fresh fetch + lift. On Windows a missing
+        # exe at this point is almost always Defender quarantine (false
+        # positive on closed-source miners), not a bad archive.
+        if ($PlatformOs -eq 'windows') {
+            Write-Host "  [x] $($Miner.name): binary missing after extraction - Windows Defender likely quarantined it (a false positive for closed-source miners)." -ForegroundColor Red
+            Write-Host "      Restore it in Windows Security > Protection history, or add an exclusion for '$minerDir'." -ForegroundColor DarkYellow
+        } else {
+            Write-Host "  [x] $($Miner.name): binary not found after extraction" -ForegroundColor Red
         }
         return $null
     }

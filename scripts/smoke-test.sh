@@ -257,6 +257,23 @@ if miner_listable_on_host "$tmpmem" "$GATED"; then pass "Ctrl+C proves gated min
 if grep -q 'miner_listable_on_host' mine.sh; then pass "mine.sh wires proven-on-host hiding"; else fail "mine.sh wires proven-on-host hiding"; fi
 rm -rf "$tmpmem"
 
+# 5h. Defender quarantine hint: a freshly-extracted Windows binary that is
+# MISSING (rather than merely corrupt) is almost always Windows Defender
+# quarantining it (a false positive for closed-source miners like deroluna).
+# The bash path must explain that instead of a dead-end integrity error.
+echo ""
+echo "5h. Defender quarantine hint:"
+if grep -q 'Windows Defender' mine.sh && grep -q 'Protection' mine.sh; then
+    pass "mine.sh explains Defender quarantine + how to fix"
+else
+    fail "mine.sh explains Defender quarantine + how to fix"
+fi
+if grep -q '"$OS" = "windows"' mine.sh && grep -q '! -f "$BINARY_PATH"' mine.sh; then
+    pass "hint fires only for a missing binary on Windows"
+else
+    fail "hint fires only for a missing binary on Windows"
+fi
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

@@ -288,6 +288,18 @@ try {
     [System.IO.File]::WriteAllBytes($corrupt, $badBuf)
     Set-Content -LiteralPath "$corrupt.tag" -Value 'v0.3.0' -NoNewline
     Assert-True '  corrupt binary forces re-download' (-not (Test-CachedBinaryUsable $corrupt 'v0.3.0' 'linux'))
+    # Integrity failures must be actionable, not a dead-end error: on Windows a
+    # binary that is MISSING right after extraction is almost always Defender
+    # quarantining it (false positive for closed-source miners); a present-but-
+    # corrupt one is a bad download. Tests the REAL Get-IntegrityFailureHint.
+    $hintWin = Get-IntegrityFailureHint -Path (Join-Path $tmpCache 'missing.exe') -Os 'windows' -MinerDir $tmpCache
+    Assert-True '  missing binary on windows -> Defender hint' ($hintWin -match 'Windows Defender')
+    $hintLin = Get-IntegrityFailureHint -Path (Join-Path $tmpCache 'missing.bin') -Os 'linux' -MinerDir $tmpCache
+    Assert-True '  missing binary on linux -> generic retry hint' ($hintLin -match 'incomplete or corrupt')
+    $hintCorrupt = Get-IntegrityFailureHint -Path $bad -Os 'windows' -MinerDir $tmpCache
+    Assert-True '  present-but-corrupt binary on windows -> generic retry hint' ($hintCorrupt -match 'incomplete or corrupt')
+    $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  launch path prints the integrity hint' ($mineText -match 'Get-IntegrityFailureHint')
 } finally {
     Remove-Item $tmpCache -Recurse -Force -ErrorAction SilentlyContinue
 }
