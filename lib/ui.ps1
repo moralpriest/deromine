@@ -125,7 +125,7 @@ function Write-MinerTable {
     $feeW = 0
     foreach ($m in $rows) {
         $nl = ([string]$m.name).Length
-        $bl = (Get-MinerBinaryName $m $Platform.os).Length
+        $bl = (Get-MinerBinaryName $m $Platform.os $Platform.arch).Length
         $tl = (Get-MinerType $m).Length
         $rl = ([string]$m.risk_note).Length
         $flRaw = [string]$m.fee
@@ -160,12 +160,12 @@ function Write-MinerTable {
         $idx++
         $numCell = "$idx".PadLeft($numW)
         $nameCell = ([string]$m.name).PadRight($nameW)
-        $binCell = ([string](Get-MinerBinaryName $m $Platform.os)).PadRight($binW)
+        $binCell = ([string](Get-MinerBinaryName $m $Platform.os $Platform.arch)).PadRight($binW)
         $typeCell = (Get-MinerType $m).PadRight($typeW)
         $statusCell = "$($b.Bullet) FETCH".PadRight($statusW)
         $statusColor = 'Yellow'
         if ($BinDir) {
-            $localBinary = Join-Path (Join-Path $BinDir $m.id) (Get-MinerBinaryName $m $Platform.os)
+            $localBinary = Join-Path (Join-Path $BinDir $m.id) (Get-MinerBinaryName $m $Platform.os $Platform.arch)
             if (Test-Path $localBinary) { $statusCell = "$($b.Check) READY".PadRight($statusW); $statusColor = 'Green' }
         }
         $riskNote = [string]$m.risk_note

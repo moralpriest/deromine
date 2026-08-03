@@ -22,16 +22,22 @@ function Get-MinerByMinerId {
 }
 
 function Get-MinerBinaryName {
-    param([object]$Miner, [string]$Os = '')
+    param([object]$Miner, [string]$Os = '', [string]$Arch = '')
     $name = $null
-    # Per-asset override first (needed when a release names its binary per OS).
+    # Per-asset override first (needed when a release names its binary per
+    # OS/arch, e.g. derohe's dero-miner-linux-arm64 on aarch64). Prefer the
+    # exact OS+arch asset, then fall back to any asset for this OS.
     if ($Os -and $Miner.PSObject.Properties['assets']) {
+        $asset = $null
         foreach ($a in $Miner.assets) {
-            if ([string]$a.os -eq $Os) {
-                if ($a.PSObject.Properties['binary'] -and $a.binary) { $name = [string]$a.binary }
-                break
+            if ([string]$a.os -eq $Os -and [string]$a.arch -eq $Arch) { $asset = $a; break }
+        }
+        if (-not $asset) {
+            foreach ($a in $Miner.assets) {
+                if ([string]$a.os -eq $Os) { $asset = $a; break }
             }
         }
+        if ($asset -and $asset.PSObject.Properties['binary'] -and $asset.binary) { $name = [string]$asset.binary }
     }
     if (-not $name -and $Miner.binary) { $name = [string]$Miner.binary }
     if (-not $name) {
@@ -63,19 +69,25 @@ function Get-MinerType {
 }
 
 function Get-MinerArchiveBinaryName {
-    param([object]$Miner, [string]$Os = '')
+    param([object]$Miner, [string]$Os = '', [string]$Arch = '')
     $name = $null
     if ($Os -and $Miner.PSObject.Properties['assets']) {
+        $asset = $null
         foreach ($a in $Miner.assets) {
-            if ([string]$a.os -eq $Os) {
-                if ($a.PSObject.Properties['binary_archive'] -and $a.binary_archive) { $name = [string]$a.binary_archive }
-                elseif ($a.PSObject.Properties['binary'] -and $a.binary) { $name = [string]$a.binary }
-                break
+            if ([string]$a.os -eq $Os -and [string]$a.arch -eq $Arch) { $asset = $a; break }
+        }
+        if (-not $asset) {
+            foreach ($a in $Miner.assets) {
+                if ([string]$a.os -eq $Os) { $asset = $a; break }
             }
+        }
+        if ($asset) {
+            if ($asset.PSObject.Properties['binary_archive'] -and $asset.binary_archive) { $name = [string]$asset.binary_archive }
+            elseif ($asset.PSObject.Properties['binary'] -and $asset.binary) { $name = [string]$asset.binary }
         }
     }
     if (-not $name -and $Miner.PSObject.Properties['binary_archive'] -and $Miner.binary_archive) { $name = [string]$Miner.binary_archive }
-    if (-not $name) { $name = Get-MinerBinaryName $Miner $Os }
+    if (-not $name) { $name = Get-MinerBinaryName $Miner $Os $Arch }
     if ($Os -eq 'windows' -and $name -and -not $name.EndsWith('.exe')) { $name += '.exe' }
     return $name
 }

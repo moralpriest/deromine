@@ -68,6 +68,38 @@ for mid in $(jq -r '.miners[].id' miners.json); do
 done
 if [ "$res_ok" -eq 1 ]; then pass "all miners define a binary"; else fail "all miners define a binary"; fi
 
+# 5b. Per-arch binary names (derohe regression: arm64/windows names differ).
+# Replicates get_binary_name / get_archive_binary_name from mine.sh so changes
+# to the helpers (not just the catalog) are caught.
+echo ""
+echo "5b. Per-arch binary names:"
+der_he=$(jq -c '.miners[] | select(.id == "derohe")' miners.json)
+while IFS= read -r combo; do
+    o=${combo%% *}; rest=${combo#* }; a=${rest%% *}; want=${rest#* }
+    got=$(echo "$der_he" | jq -r --arg os "$o" --arg arch "$a" '
+        first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // .binary
+        // ""')
+    if [ "$o" = "windows" ] && [ -n "$got" ] && [[ "$got" != *.exe ]]; then got="${got}.exe"; fi
+    if [ "$got" = "$want" ]; then pass "derohe $o/$a binary -> $got"; else fail "derohe $o/$a binary -> $got (want $want)"; fi
+done <<'EOF'
+linux amd64 dero-miner-linux-amd64
+linux aarch64 dero-miner-linux-arm64
+windows amd64 dero-miner-windows-amd64.exe
+EOF
+# Archive name used for the nested-binary lift (must be arm64 on aarch64).
+awant="dero-miner-linux-arm64"
+agot=$(echo "$der_he" | jq -r --arg os "linux" --arg arch "aarch64" '
+    first(.assets[] | select(.os == $os and .arch == $arch and ((.binary_archive // "") != ""))).binary_archive
+    // first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+    // first(.assets[] | select(.os == $os and ((.binary_archive // "") != ""))).binary_archive
+    // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+    // .binary_archive
+    // .binary
+    // ""')
+if [ "$agot" = "$awant" ]; then pass "derohe linux/aarch64 archive name -> $agot"; else fail "derohe linux/aarch64 archive name -> $agot (want $awant)"; fi
+
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is
 # empty unless --auto-restart, so bash failed the redirect ('No such file or

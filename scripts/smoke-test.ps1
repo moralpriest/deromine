@@ -124,6 +124,24 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 6b. Per-arch binary overrides (derohe regression: name differs by arch)
+Write-Host ''
+Write-Host '6b. Per-arch binary resolution:' -ForegroundColor Yellow
+try {
+    $derohe = Get-MinerByMinerId $catalog 'derohe'
+    if ($derohe) {
+        Assert-True '  derohe linux/amd64 -> dero-miner-linux-amd64' ((Get-MinerBinaryName $derohe 'linux' 'amd64') -eq 'dero-miner-linux-amd64')
+        Assert-True '  derohe linux/aarch64 -> dero-miner-linux-arm64' ((Get-MinerBinaryName $derohe 'linux' 'aarch64') -eq 'dero-miner-linux-arm64')
+        Assert-True '  derohe windows/amd64 -> dero-miner-windows-amd64.exe' ((Get-MinerBinaryName $derohe 'windows' 'amd64') -eq 'dero-miner-windows-amd64.exe')
+        Assert-True '  derohe archive name on aarch64 matches binary' ((Get-MinerArchiveBinaryName $derohe 'linux' 'aarch64') -eq 'dero-miner-linux-arm64')
+    } else {
+        Assert-True '  derohe found in catalog' $false
+    }
+} catch {
+    Assert-True '  per-arch binary resolution works' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+}
+
 # 7. Installer (install.ps1) runs and places the launcher for this OS
 Write-Host ''
 Write-Host '7. Installer (cross-platform):' -ForegroundColor Yellow

@@ -182,6 +182,45 @@ get_asset_pattern() {
     echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '.assets[] | select(.os == $os and .arch == $arch) | .pattern' | head -1
 }
 
+# Binary name: per-asset override (exact OS/arch first, then any asset for
+# this OS), falling back to the miner-level .binary field. Needed because
+# some releases name the binary per arch (e.g. derohe's dero-miner-linux-arm64
+# on aarch64 vs dero-miner-linux-amd64 on amd64).
+get_binary_name() {
+    local miner_json="$1" name
+    name=$(echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '
+        first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // .binary
+        // ""')
+    if [ "$OS" = "windows" ] && [ -n "$name" ] && [[ "$name" != *.exe ]]; then
+        name="${name}.exe"
+    fi
+    echo "$name"
+}
+
+get_archive_binary_name() {
+    local miner_json="$1" name
+    # Mirrors Get-MinerArchiveBinaryName in catalog.ps1: per-asset
+    # binary_archive, then per-asset binary, then the miner-level fields.
+    # Order matters: derohe's top-level binary_archive is amd64-specific, so
+    # the per-asset binary must win on aarch64.
+    name=$(echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '
+        first(.assets[] | select(.os == $os and .arch == $arch and ((.binary_archive // "") != ""))).binary_archive
+        // first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // first(.assets[] | select(.os == $os and ((.binary_archive // "") != ""))).binary_archive
+        // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // .binary_archive
+        // .binary
+        // ""')
+    # .exe is appended for Windows (previously the bash path never did this;
+    # aligning with PowerShell and required for per-arch names like derohe).
+    if [ "$OS" = "windows" ] && [ -n "$name" ] && [[ "$name" != *.exe ]]; then
+        name="${name}.exe"
+    fi
+    echo "$name"
+}
+
 # ── Hardware detection ──
 has_nvidia_gpu() {
     command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1
@@ -256,7 +295,8 @@ draw_miner_table() {
     local -a names=() bins=() types=() fees=() rnotes=() rlevels=()
     for m in "${all[@]:-}"; do
         name=$(echo "$m" | jq -r '.name // "?"')
-        bin=$(echo "$m" | jq -r '.binary // "?"')
+        bin=$(get_binary_name "$m")
+        [ -z "$bin" ] && bin="?"
         fee=$(echo "$m" | jq -r '.fee // "0%"')
         dflg=$(echo "$m" | jq -r '.flags.dev_fee // empty')
         if [ -n "$dflg" ] && [ -n "$DEV_FEE_OVERRIDE" ]; then
@@ -312,7 +352,7 @@ draw_miner_table() {
         esac
         status=$(printf '%-*s' "$sw" "$BULLET AVAIL")
         mid=$(echo "$m" | jq -r '.id // ""')
-        if [ -n "$mid" ] && [ -x "$BIN_DIR/$mid/$(echo "$m" | jq -r '.binary // ""')" ]; then
+        if [ -n "$mid" ] && [ -x "$BIN_DIR/$mid/$(get_binary_name "$m")" ]; then
             status=$(printf '%-*s' "$sw" "$CHECK READY")
         fi
         line="${T_V} ${C_NUM}${num}${C_RESET} ${T_V} ${C_NAME}${name}${C_RESET} ${T_V} ${C_BIN}${bin}${C_RESET} ${T_V} ${C_DIM}${typ}${C_RESET} ${T_V} ${C_STATUS}${status}${C_RESET} ${T_V} ${rcol}${rnote}${C_RESET} ${T_V} ${fcol}${fee}${C_RESET} ${T_V}"
@@ -509,8 +549,8 @@ if $BENCH_MODE; then
         host=$(echo "$m" | jq -r '.host // "github"')
         branch=$(echo "$m" | jq -r '.branch // "main"')
         rpath=$(echo "$m" | jq -r '.release_path // "releases"')
-        bname=$(echo "$m" | jq -r '.binary')
-        abin=$(echo "$m" | jq -r '.binary_archive // .binary')
+        bname=$(get_binary_name "$m")
+        abin=$(get_archive_binary_name "$m")
         pattern=$(get_asset_pattern "$m")
         [ -z "$pattern" ] && { echo "  ${C_DIM}[skip] $name: no asset for $OS/$ARCH${C_RESET}"; return; }
 
@@ -674,8 +714,8 @@ if ! miner_hardware_ok "$MINER_JSON"; then
     exit 1
 fi
 
-BINARY_NAME=$(echo "$MINER_JSON" | jq -r '.binary')
-ARCHIVE_BINARY=$(echo "$MINER_JSON" | jq -r '.binary_archive // .binary')
+BINARY_NAME=$(get_binary_name "$MINER_JSON")
+ARCHIVE_BINARY=$(get_archive_binary_name "$MINER_JSON")
 ASSET_PATTERN=$(get_asset_pattern "$MINER_JSON")
 if [ -z "$ASSET_PATTERN" ]; then
     echo "${C_ERR}[x] No asset for $MINER_ID on $OS/$ARCH${C_RESET}"

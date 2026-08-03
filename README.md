@@ -347,6 +347,12 @@ Both suites fail with exit code 1 on any regression.
 - **Binary not found after extraction**: The extracted archive may have a nested
   directory. The script attempts to lift nested binaries to the top-level
   `bin/<miner-id>/` folder.
+- **Binary not found after extraction (per-arch names, e.g. derohe on
+  Termux/Android)**: some releases name the binary per architecture — derohe
+  ships `dero-miner-linux-arm64` on aarch64 but `dero-miner-linux-amd64` on
+  amd64 (and `dero-miner-windows-amd64.exe` on Windows). These are handled
+  automatically via per-asset `binary` overrides in `miners.json`; re-run
+  `deromine` after updating.
 - **Permission denied on Linux/macOS**: The script runs `chmod +x` automatically.
   If it fails, run `chmod +x bin/c/dirtybird-c-miner` manually.
 - **GPU miner missing from list**: GPU miners are filtered by hardware detection

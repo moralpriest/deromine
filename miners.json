@@ -131,9 +131,9 @@
         "threads": "--mining-threads"
       },
       "assets": [
-        { "os": "linux",   "arch": "amd64",  "pattern": "dero_linux_amd64.tar.gz" },
-        { "os": "linux",   "arch": "aarch64","pattern": "dero_linux_arm64.tar.gz" },
-        { "os": "windows", "arch": "amd64",  "pattern": "dero_windows_amd64.zip" }
+        { "os": "linux",   "arch": "amd64",  "pattern": "dero_linux_amd64.tar.gz",   "binary": "dero-miner-linux-amd64" },
+        { "os": "linux",   "arch": "aarch64","pattern": "dero_linux_arm64.tar.gz",   "binary": "dero-miner-linux-arm64" },
+        { "os": "windows", "arch": "amd64",  "pattern": "dero_windows_amd64.zip",    "binary": "dero-miner-windows-amd64" }
       ]
     },
     {

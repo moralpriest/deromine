@@ -68,12 +68,12 @@ function Invoke-BenchmarkProcess {
 function Get-MinerBinaryPath {
     param([object]$Miner, [string]$BinDir, [string]$PlatformOs, [string]$PlatformArch)
     $minerDir = Join-Path $BinDir $Miner.id
-    $binaryName = Get-MinerBinaryName $Miner $PlatformOs
+    $binaryName = Get-MinerBinaryName $Miner $PlatformOs $PlatformArch
     $binaryPath = Join-Path $minerDir $binaryName
     if (Test-Path $binaryPath) { return $binaryPath }
 
     New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
-    $archiveBinary = Get-MinerArchiveBinaryName $Miner
+    $archiveBinary = Get-MinerArchiveBinaryName $Miner $PlatformOs $PlatformArch
     $asset = Get-MinerAsset $Miner $PlatformOs $PlatformArch
     if (-not $asset) { return $null }
     $pattern = [string]$asset.pattern

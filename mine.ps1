@@ -188,8 +188,8 @@ else {
 }
 
 # ── Resolve binary name & catalog asset entry (has the glob pattern) ──
-$binaryName = Get-MinerBinaryName $miner $platform.os
-$archiveBinary = Get-MinerArchiveBinaryName $miner $platform.os
+$binaryName = Get-MinerBinaryName $miner $platform.os $platform.arch
+$archiveBinary = Get-MinerArchiveBinaryName $miner $platform.os $platform.arch
 if (-not $binaryName) {
     Write-Error "No binary name for $($miner.id) on $($platform.os)/$($platform.arch)"
     exit 1
