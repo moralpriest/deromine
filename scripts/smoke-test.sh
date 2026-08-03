@@ -287,16 +287,26 @@ echo ""
 echo "5i. Daemon selection (custom node):"
 eval "$(sed -n '/^rep()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^draw_daemon_table()/,/^}/p' mine.sh)"
+eval "$(sed -n '/^normalize_daemon_url()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^valid_daemon_url()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^select_daemon()/,/^}/p' mine.sh)"
 export MINERS_FILE="$PROJECT_DIR/miners.json"
-export -f rep draw_daemon_table valid_daemon_url select_daemon
+export DEFAULT_DAEMON_PORT=10100
+export -f rep draw_daemon_table normalize_daemon_url valid_daemon_url select_daemon
 first_daemon=$(jq -r '.daemons[0].url' "$MINERS_FILE")
 dout=$(printf '1\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
 if [ "$dout" = "$first_daemon" ]; then pass "numeric choice selects catalog node"; else fail "numeric choice selects catalog node (got '$dout')"; fi
 dout=$(printf 'c\n192.168.1.10:10100\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
 if [ "$dout" = "192.168.1.10:10100" ]; then pass "custom node accepted"; else fail "custom node accepted (got '$dout')"; fi
-dout=$(printf 'c\nnot-a-node\nc\nhttps://node.example.org:10100/pool\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
+dout=$(printf 'c\nmy.node\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
+if [ "$dout" = "my.node:10100" ]; then pass "custom node without port defaults to 10100"; else fail "custom node without port defaults to 10100 (got '$dout')"; fi
+dout=$(printf 'c\nhttps://my.node/stratum\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
+if [ "$dout" = "https://my.node:10100/stratum" ]; then pass "default port inserted before path"; else fail "default port inserted before path (got '$dout')"; fi
+dout=$(printf 'c\n[::1]\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
+if [ "$dout" = "[::1]:10100" ]; then pass "bracketed IPv6 without port defaults"; else fail "bracketed IPv6 without port defaults (got '$dout')"; fi
+nu=$(bash -c 'normalize_daemon_url example.org')
+if [ "$nu" = "example.org:10100" ]; then pass "normalize_daemon_url appends default port"; else fail "normalize_daemon_url appends default port (got '$nu')"; fi
+dout=$(printf 'c\nnot a node\nc\nhttps://node.example.org:10100/pool\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
 if [ "$dout" = "https://node.example.org:10100/pool" ]; then pass "invalid custom re-prompts, valid accepted"; else fail "invalid custom re-prompts, valid accepted (got '$dout')"; fi
 dout=$(printf '99\n1\n' | bash -c 'select_daemon; printf "%s" "$DAEMON_URL"' 2>/dev/null)
 if [ "$dout" = "$first_daemon" ]; then pass "invalid number re-prompts, valid accepted"; else fail "invalid number re-prompts, valid accepted (got '$dout')"; fi
@@ -304,7 +314,8 @@ if printf 'q\n' | bash -c 'select_daemon' 2>/dev/null; then fail "q quits daemon
 call_sites=$(grep -c 'select_daemon' mine.sh)
 if [ "$call_sites" -ge 2 ]; then pass "mine.sh wires select_daemon into the flow"; else fail "mine.sh wires select_daemon into the flow ($call_sites refs)"; fi
 unset MINERS_FILE
-unset -f rep draw_daemon_table valid_daemon_url select_daemon
+unset DEFAULT_DAEMON_PORT
+unset -f rep draw_daemon_table normalize_daemon_url valid_daemon_url select_daemon
 
 # 6. Launch loop: the miner must launch even with no log file (no --auto-restart).
 # Regression: the loop used to redirect unconditionally to "$LOGFILE", which is

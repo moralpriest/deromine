@@ -28,13 +28,27 @@ function Test-WalletAddress {
     return $Address -match '^[13d][a-zA-Z0-9]{50,120}$'
 }
 
+# Default DERO daemon / stratum port applied when the user types a custom
+# node without one (e.g. "my.node" -> "my.node:10100").
+$DefaultDaemonPort = '10100'
+
 # Accepts a custom node the user typed at the daemon prompt: optional
-# http(s):// scheme, hostname / IPv4 / bracketed IPv6, a required port, and
-# an optional path. Anything else (bare words, no port) is rejected.
+# http(s):// scheme, hostname / IPv4 / bracketed IPv6, an optional port
+# (defaults to $DefaultDaemonPort), and an optional path. Returns the
+# normalized URL, or $null when the input is not a usable node.
+function Normalize-DaemonUrl {
+    param([string]$Url)
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $null }
+    $m = [regex]::Match($Url.Trim(), '^(https?://)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+)(:[0-9]+)?(/.*)?$')
+    if (-not $m.Success) { return $null }
+    $port = $m.Groups[3].Value
+    if (-not $port) { $port = ":$DefaultDaemonPort" }
+    return $m.Groups[1].Value + $m.Groups[2].Value + $port + $m.Groups[4].Value
+}
+
 function Test-DaemonUrl {
     param([string]$Url)
-    if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
-    return $Url -match '^(https?://)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+):[0-9]+(/.*)?$'
+    return [bool](Normalize-DaemonUrl $Url)
 }
 
 function Read-WalletAddress {

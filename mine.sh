@@ -6,6 +6,7 @@ LIB_DIR="$PROJECT_DIR/lib"
 BIN_DIR="$PROJECT_DIR/bin"
 CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
+DEFAULT_DAEMON_PORT=10100
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"
@@ -633,10 +634,24 @@ draw_daemon_table() {
 }
 
 # Accepts a custom node the user typed at the daemon prompt: optional
-# http(s):// scheme, hostname / IPv4 / bracketed IPv6, a required port, and
-# an optional path. Anything else (bare words, no port) is rejected.
+# http(s):// scheme, hostname / IPv4 / bracketed IPv6, an optional port
+# (defaults to $DEFAULT_DAEMON_PORT), and an optional path. Prints the
+# normalized URL and returns 0; returns 1 for anything unusable.
+normalize_daemon_url() {
+    local url="$1" scheme="" host="" port="" path=""
+    if [[ ! "$url" =~ ^(https?://)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+)(:[0-9]+)?(/.*)?$ ]]; then
+        return 1
+    fi
+    scheme="${BASH_REMATCH[1]}"
+    host="${BASH_REMATCH[2]}"
+    port="${BASH_REMATCH[3]}"
+    path="${BASH_REMATCH[4]}"
+    [ -z "$port" ] && port=":$DEFAULT_DAEMON_PORT"
+    printf '%s%s%s%s\n' "$scheme" "$host" "$port" "$path"
+}
+
 valid_daemon_url() {
-    [[ "$1" =~ ^(https?://)?(\[[0-9a-fA-F:]+\]|[A-Za-z0-9._-]+):[0-9]+(/.*)?$ ]]
+    normalize_daemon_url "$1" >/dev/null
 }
 
 # Daemon endpoint prompt. Picks a number from the catalog table, lets the user
@@ -656,10 +671,10 @@ select_daemon() {
         case "$dchoice" in
             q|Q|quit|x|exit) return 1 ;;
             c|C|custom)
-                printf "Custom node (host:port, e.g. 192.168.1.10:10100): " >&2
+                printf "Custom node (host:port, e.g. 192.168.1.10:10100, port defaults to 10100): " >&2
                 read -r custom || continue
-                if [ -n "$custom" ] && valid_daemon_url "$custom"; then
-                    DAEMON_URL="$custom"
+                if [ -n "$custom" ] && url=$(normalize_daemon_url "$custom"); then
+                    DAEMON_URL="$url"
                     return 0
                 fi
                 echo "${C_ERR}[x] Invalid node. Use host:port (e.g. node.example.org:10100).${C_RESET}" >&2

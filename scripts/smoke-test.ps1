@@ -210,8 +210,9 @@ try {
 }
 
 # 4e. Daemon URL validation (custom node entry): the daemon prompt lets the
-# user type a custom host:port. Test-DaemonUrl must accept valid node
-# formats (scheme optional, IPv4/IPv6, required port) and reject bare words.
+# user type a custom host:port. Normalize-DaemonUrl must accept valid node
+# formats (scheme optional, IPv4/IPv6, optional port defaulting to 10100)
+# and return the normalized URL, rejecting unusable input.
 Write-Host ''
 Write-Host '4e. Daemon URL validation:' -ForegroundColor Yellow
 try {
@@ -220,9 +221,14 @@ try {
     Assert-True '  scheme + host:port accepted' (Test-DaemonUrl 'http://node.example.org:10100')
     Assert-True '  https + path accepted' (Test-DaemonUrl 'https://pool.example.org:10100/stratum')
     Assert-True '  bracketed IPv6 accepted' (Test-DaemonUrl '[::1]:10100')
-    Assert-True '  bare word rejected' (-not (Test-DaemonUrl 'mynode'))
-    Assert-True '  missing port rejected' (-not (Test-DaemonUrl 'node.example.org'))
+    Assert-True '  bare word defaults to 10100' ((Normalize-DaemonUrl 'mynode') -eq 'mynode:10100')
+    Assert-True '  missing port defaults to 10100' ((Normalize-DaemonUrl 'node.example.org') -eq 'node.example.org:10100')
+    Assert-True '  default port inserted before path' ((Normalize-DaemonUrl 'https://node.example.org/stratum') -eq 'https://node.example.org:10100/stratum')
+    Assert-True '  IPv6 without port defaults' ((Normalize-DaemonUrl '[::1]') -eq '[::1]:10100')
+    Assert-True '  explicit port preserved' ((Normalize-DaemonUrl '192.168.1.10:9999') -eq '192.168.1.10:9999')
+    Assert-True '  whitespace trimmed' ((Normalize-DaemonUrl '  my.node  ') -eq 'my.node:10100')
     Assert-True '  empty rejected' (-not (Test-DaemonUrl '   '))
+    Assert-True '  garbage rejected' (-not (Test-DaemonUrl 'ht!tp://bad'))
     $uiText = Get-Content (Join-Path $libDir 'ui.ps1') -Raw
     Assert-True '  Read-DaemonEndpoint offers custom entry' ($uiText -match 'custom node')
     $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw

@@ -257,8 +257,9 @@ function Read-DaemonEndpoint {
         $choice = Read-Host "Choice (1-$($Daemons.Count)), $($b.Prompt) c for a custom node, q to quit"
         if ($choice -match '^(q|quit|x|exit)$') { return $null }
         if ($choice -match '^(c|custom)$') {
-            $custom = Read-Host 'Custom node (host:port, e.g. 192.168.1.10:10100)'
-            if (Test-DaemonUrl $custom) { return $custom.Trim() }
+            $custom = Read-Host 'Custom node (host:port, e.g. 192.168.1.10:10100, port defaults to 10100)'
+            $url = Normalize-DaemonUrl $custom
+            if ($url) { return $url }
             Write-Host "[x] Invalid node. Use host:port (e.g. node.example.org:10100)." -ForegroundColor Red
             continue
         }
