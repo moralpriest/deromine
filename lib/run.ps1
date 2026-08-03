@@ -40,7 +40,12 @@ function Start-Miner {
     if ($LASTEXITCODE -in @(130, 3221225786)) {
         Write-Host "[*] Miner stopped (interrupted)" -ForegroundColor DarkGray
     } elseif ($LASTEXITCODE -ne 0) {
-        Write-Host "[!] Miner exited with code $LASTEXITCODE" -ForegroundColor Yellow
+        $code = $LASTEXITCODE
+        Write-Host "[!] Miner exited with code $code" -ForegroundColor Yellow
+        if ($code -eq -1073741515) {  # 0xC0000135 = STATUS_DLL_NOT_FOUND
+            Write-Host "  A required DLL is missing next to the miner (stale cache from an older deromine)." -ForegroundColor DarkYellow
+            Write-Host "  Fix: Remove-Item '$(Split-Path -Parent $BinaryPath)' -Recurse -Force, then run deromine again (it re-downloads the DLLs)." -ForegroundColor DarkYellow
+        }
     } else {
         Write-Host "[*] Miner stopped (exit code 0)" -ForegroundColor DarkGray
     }

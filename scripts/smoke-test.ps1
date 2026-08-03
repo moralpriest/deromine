@@ -307,6 +307,10 @@ try {
     # be asserted — the feature IS the message, not just the exit code.
     $out = Start-Miner -BinaryPath $fakeBin -DaemonUrl 'host:10100' -WalletAddress 'dero1test' -ThreadCount 2 -FlagMap $flagMap -ExtraArgs @() 6>&1 | Out-String
     Assert-True '  nonzero miner exit is reported' ($out -match 'exited with code 2')
+    # The STATUS_DLL_NOT_FOUND (0xC0000135) hint must exist so a Windows user
+    # hitting the missing-DLL case gets told exactly how to fix it.
+    $runPsText = Get-Content (Join-Path $libDir 'run.ps1') -Raw
+    Assert-True '  missing-DLL hint present in run.ps1' ($runPsText -match 'STATUS_DLL_NOT_FOUND')
 } catch {
     Assert-True '  miner exit reporting works' $false
     Write-Host "    Error: $_" -ForegroundColor DarkRed

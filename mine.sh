@@ -1067,6 +1067,10 @@ while true; do
             else
                 echo "[!] Miner exited with code $rc (log: $LOGFILE)" >&2
                 echo "Miner exited with code $rc" >> "$LOGFILE" 2>/dev/null || true
+                if [ "$rc" = "-1073741515" ] || [ "$rc" = "3221225781" ]; then
+                    echo "  A required DLL is missing next to the miner (stale cache)." >&2
+                    echo "  Fix: rm -rf \"$MINER_DIR\", then run deromine again (it re-downloads the DLLs)." >&2
+                fi
             fi
         fi
     else
@@ -1079,6 +1083,10 @@ while true; do
                 echo "[*] Miner stopped (interrupted)" >&2
             else
                 echo "[!] Miner exited with code $rc" >&2
+                if [ "$rc" = "-1073741515" ] || [ "$rc" = "3221225781" ]; then
+                    echo "  A required DLL is missing next to the miner (stale cache)." >&2
+                    echo "  Fix: rm -rf \"$MINER_DIR\", then run deromine again (it re-downloads the DLLs)." >&2
+                fi
             fi
             exit "$rc"
         fi

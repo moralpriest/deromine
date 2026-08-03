@@ -250,6 +250,11 @@ if grep -q 'Miner exited with code' mine.sh; then
 else
     fail "mine.sh contains exit-code reporting"
 fi
+if grep -q 'A required DLL is missing' mine.sh; then
+    pass "missing-DLL hint present in mine.sh"
+else
+    fail "missing-DLL hint present in mine.sh"
+fi
 
 echo ""
 echo "=== Results ==="
