@@ -27,6 +27,8 @@ $dryRun          = $false
 $reconfigure     = $false
 $benchmark       = $false
 $benchTime       = 30
+$includeClosedSource = $false
+$assumeYes       = $false
 $addExclusion    = $false
 $devFee          = ''
 $outputDir       = Join-Path $projectDir 'bin'
@@ -69,6 +71,8 @@ for ($i = 0; $i -lt $params.Count; $i++) {
         '--delay=*'           { $restartDelay    = [int]($params[$i] -split '=')[1] }
         '--dry-run'           { $dryRun          = $true }
         '--benchmark'         { $benchmark       = $true }
+        '--include-closed-source' { $includeClosedSource = $true }
+        '--yes'                { $assumeYes       = $true }
         '--bench-time=*'      { $benchTime       = [int]($params[$i] -split '=')[1] }
         '--dev-fee=*'         { $devFee          = ($params[$i] -split '=')[1] }
         '--output-dir=*'      { $outputDir       = ($params[$i] -split '=')[1] }
@@ -170,7 +174,7 @@ if ($benchmark) {
         $benchThreads = $cpus - 1
     }
     if ($benchThreads -lt 1) { $benchThreads = 1 }
-    Start-MinerBenchmark -Catalog $catalog -Platform $platform -BenchTime $benchTime -Threads $benchThreads -Daemon $liveDaemon -Wallet $walletAddress -BinDir $outputDir
+    Start-MinerBenchmark -Catalog $catalog -Platform $platform -BenchTime $benchTime -Threads $benchThreads -Daemon $liveDaemon -Wallet $walletAddress -BinDir $outputDir -IncludeClosedSource:$includeClosedSource -AssumeYes:$assumeYes
     exit 0
 }
 
@@ -200,7 +204,13 @@ if (-not $minerType -or $minerType -eq 'interactive') {
     $choice = Read-Host "Number (1-$maxChoice), or action [l/b/h/q]"
     switch ($choice) {
         { $choice -match '^(l|L|list)$' }   { & $PSCommandPath --miner=list; exit 0 }
-        { $choice -match '^(b|B|bench|benchmark)$' } { & $PSCommandPath --benchmark; exit 0 }
+        { $choice -match '^(b|B|bench|benchmark)$' } {
+            $benchArgs = @('--benchmark')
+            if ($includeClosedSource) { $benchArgs += '--include-closed-source' }
+            if ($assumeYes) { $benchArgs += '--yes' }
+            & $PSCommandPath @benchArgs
+            exit 0
+        }
         { $choice -match '^(h|H|help)$' }   { Show-Help }
         { $choice -match '^(q|quit|x|exit)$' } { Write-Host 'bye' -ForegroundColor DarkGray; exit 0 }
         { $choice -match '^\d+$' } {

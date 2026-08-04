@@ -1,10 +1,24 @@
+function Get-BenchmarkPolicy {
+    param([object]$Miner)
+    $policy = 'opt-in'
+    if ($Miner.PSObject.Properties['benchmark_policy'] -and $Miner.benchmark_policy) {
+        $policy = ([string]$Miner.benchmark_policy).ToLowerInvariant()
+    }
+    if ($policy -notin @('default', 'opt-in', 'disabled')) { return 'opt-in' }
+    return $policy
+}
+
 function Get-SupportedMiners {
-    param([object]$Catalog, [object]$Platform, [string]$BinDir = '')
+    param([object]$Catalog, [object]$Platform, [string]$BinDir = '', [switch]$IncludeClosedSource)
+
     $rows = @()
     if (-not $Catalog -or -not $Catalog.miners) { return $rows }
     foreach ($m in $Catalog.miners) {
         if (-not (Get-MinerAsset $m $Platform.os $Platform.arch)) { continue }
         if (-not (Test-MinerHardwareSupported $m)) { continue }
+        $policy = Get-BenchmarkPolicy $m
+        if ($policy -eq 'disabled') { continue }
+        if ($policy -eq 'opt-in' -and -not $IncludeClosedSource) { continue }
         # Hide miners that can't actually run on this host: self-test-gated
         # GPU miners are listed only once a launch proved they work here.
         if ($BinDir -and -not (Test-MinerListable -Miner $m -BinDir $BinDir)) { continue }
@@ -69,7 +83,14 @@ function Invoke-BenchmarkProcess {
 }
 
 function Get-MinerBinaryPath {
-    param([object]$Miner, [string]$BinDir, [string]$PlatformOs, [string]$PlatformArch)
+    param(
+        [object]$Miner,
+        [string]$BinDir,
+        [string]$PlatformOs,
+        [string]$PlatformArch,
+        [switch]$IncludeClosedSource
+    )
+    if ((Get-BenchmarkPolicy $Miner) -eq 'opt-in' -and -not $IncludeClosedSource) { return $null }
     $minerDir = Join-Path $BinDir $Miner.id
     New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
     $binaryName = Get-MinerBinaryName $Miner $PlatformOs $PlatformArch
@@ -158,10 +179,16 @@ function Invoke-MinerBenchmark {
         [int]$BenchTime,
         [int]$Threads,
         [string]$Daemon,
-        [string]$Wallet
+        [string]$Wallet,
+        [switch]$IncludeClosedSource
     )
     $id = [string]$Miner.id
-    if ($Miner.PSObject.Properties['benchmark'] -and $Miner.benchmark -eq $false) {
+    $policy = Get-BenchmarkPolicy $Miner
+    if ($policy -eq 'opt-in' -and -not $IncludeClosedSource) {
+        Write-Host "  [skip] $($Miner.name): closed/partially closed miner requires --include-closed-source" -ForegroundColor DarkGray
+        return $null
+    }
+    if ($policy -eq 'disabled') {
         Write-Host "  [skip] $($Miner.name): benchmark disabled in catalog" -ForegroundColor DarkGray
         return $null
     }
@@ -218,7 +245,9 @@ function Start-MinerBenchmark {
         [int]$Threads,
         [string]$Daemon,
         [string]$Wallet,
-        [string]$BinDir
+        [string]$BinDir,
+        [switch]$IncludeClosedSource,
+        [switch]$AssumeYes
     )
     # ── Benchmark history (compare against last run) ──
     $benchCache = Join-Path $BinDir '.benchmarks.json'
@@ -227,23 +256,51 @@ function Start-MinerBenchmark {
         try { $prev = (Get-Content $benchCache -Raw | ConvertFrom-Json) -as [hashtable] } catch { $prev = @{} }
         if (-not $prev) { $prev = @{} }
     }
-    $supported = @(Get-SupportedMiners -Catalog $Catalog -Platform $Platform -BinDir $BinDir)
+    $optInMiners = @($Catalog.miners | Where-Object {
+        (Get-BenchmarkPolicy $_) -eq 'opt-in' -and
+        (Get-MinerAsset $_ $Platform.os $Platform.arch) -and
+        (Test-MinerHardwareSupported $_) -and
+        (Test-MinerListable -Miner $_ -BinDir $BinDir)
+    })
+    if ($IncludeClosedSource -and $optInMiners.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'WARNING: this will download and execute closed-source or partially closed-source miners.' -ForegroundColor Yellow
+        Write-Host ('Affected miners: ' + (($optInMiners | ForEach-Object { $_.name }) -join ', ')) -ForegroundColor Yellow
+        if (-not $AssumeYes) {
+            if ([Console]::IsInputRedirected) {
+                Write-Host 'Non-interactive input detected; rerun with --yes only after reviewing the risk.' -ForegroundColor Red
+                exit 1
+            }
+            $answer = Read-Host 'Continue with these miners? [y/N]'
+            if ($answer -notmatch '^(y|yes)$') {
+                Write-Host 'Benchmark cancelled; no opt-in miners were run.' -ForegroundColor DarkYellow
+                exit 0
+            }
+        } else {
+            Write-Host 'Non-interactive confirmation supplied with --yes.' -ForegroundColor DarkYellow
+        }
+    }
+    $supported = @(Get-SupportedMiners -Catalog $Catalog -Platform $Platform -BinDir $BinDir -IncludeClosedSource:$IncludeClosedSource)
     if ($supported.Count -eq 0) {
         Write-Host "[x] No miners available to benchmark on this host" -ForegroundColor Red
         exit 1
     }
     Write-Banner
+    if (-not $IncludeClosedSource -and $optInMiners.Count -gt 0) {
+        Write-Host ('Skipped untrusted miners: ' + (($optInMiners | ForEach-Object { $_.name }) -join ', ')) -ForegroundColor DarkYellow
+        Write-Host 'Use --include-closed-source to opt in; add --yes for non-interactive confirmation.' -ForegroundColor DarkYellow
+    }
     Write-Host "Benchmarking $($supported.Count) miners (~${BenchTime}s each, ${Threads} threads)..." -ForegroundColor DarkCyan
 
     $rows = @()
     foreach ($m in $supported) {
-        $binaryPath = Get-MinerBinaryPath -Miner $m -BinDir $BinDir -PlatformOs $Platform.os -PlatformArch $Platform.arch
+        $binaryPath = Get-MinerBinaryPath -Miner $m -BinDir $BinDir -PlatformOs $Platform.os -PlatformArch $Platform.arch -IncludeClosedSource:$IncludeClosedSource
         if (-not $binaryPath) {
             Write-Host "  $($m.name): binary unavailable" -ForegroundColor Red
             Start-Sleep -Seconds 1
             continue
         }
-        $row = Invoke-MinerBenchmark -Miner $m -BinaryPath $binaryPath -BenchTime $BenchTime -Threads $Threads -Daemon $Daemon -Wallet $Wallet
+        $row = Invoke-MinerBenchmark -Miner $m -BinaryPath $binaryPath -BenchTime $BenchTime -Threads $Threads -Daemon $Daemon -Wallet $Wallet -IncludeClosedSource:$IncludeClosedSource
         if ($row) { $rows += $row }
         Start-Sleep -Seconds 3
     }

@@ -90,7 +90,9 @@ function Show-Help {
     Write-Host '  --max-restart=<n>      Max restarts (default 5)' -ForegroundColor Gray
     Write-Host '  --delay=<sec>          Restart delay in seconds (default 10)' -ForegroundColor Gray
     Write-Host '  --dry-run              Resolve release and print command, do not launch' -ForegroundColor Gray
-    Write-Host '  --benchmark            Benchmark all supported miners' -ForegroundColor Gray
+    Write-Host '  --benchmark            Benchmark approved miners (closed-source miners skipped)' -ForegroundColor Gray
+    Write-Host '  --include-closed-source Include closed/partially closed miners (explicit opt-in)' -ForegroundColor Yellow
+    Write-Host '  --yes                  Confirm an opt-in benchmark non-interactively' -ForegroundColor Yellow
     Write-Host '  --bench-time=<sec>     Benchmark seconds per miner (default 30)' -ForegroundColor Gray
     Write-Host '  --output-dir=<dir>     Where binaries are stored (default ./bin)' -ForegroundColor Gray
     Write-Host '  --config=<path>        Config file (default ./config.json)' -ForegroundColor Gray

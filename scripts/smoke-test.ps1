@@ -114,7 +114,11 @@ Write-Host '3a. CLI parity:' -ForegroundColor Yellow
 $mineTextForCli = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
 $uiTextForCli = Get-Content (Join-Path $libDir 'ui.ps1') -Raw
 Assert-True '  --reconfigure is wired' ($mineTextForCli -match '--reconfigure' -and $mineTextForCli -match 'config.bak')
-Assert-True '  --benchmark is documented in help' ($uiTextForCli -match '--benchmark' -and $uiTextForCli -match '--bench-time')
+Assert-True '  benchmark trust controls are documented in help' ($uiTextForCli -match '--benchmark' -and $uiTextForCli -match '--include-closed-source' -and $uiTextForCli -match '--yes' -and $uiTextForCli -match '--bench-time')
+$derolunaOptIn = @($catalog.miners | Where-Object { $_.id -eq 'deroluna' -and $_.benchmark_policy -eq 'opt-in' }).Count -eq 1
+$astronvDisabled = @($catalog.miners | Where-Object { $_.id -eq 'astronv' -and $_.benchmark_policy -eq 'disabled' }).Count -eq 1
+Assert-True '  catalog benchmark policies are explicit' ($derolunaOptIn -and $astronvDisabled)
+Assert-True '  benchmark trust boundaries are wired' ($minePsText -match '--include-closed-source' -and $minePsText -match '--yes' -and $minePsText -match 'Start-MinerBenchmark.*IncludeClosedSource')
 Assert-True '  help documents config/output controls' ($uiTextForCli -match '--config=<path>' -and $uiTextForCli -match '--output-dir=<dir>')
 Assert-True '  custom node prompt remains available' ($uiTextForCli -match 'custom node' -and $mineTextForCli -match 'Read-DaemonEndpoint')
 

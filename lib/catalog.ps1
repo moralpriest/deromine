@@ -17,6 +17,10 @@ function Test-CatalogSchema {
             }
             if ($ids.ContainsKey([string]$m.id)) { throw "duplicate miner id '$($m.id)'" }
             $ids[[string]$m.id] = $true
+            if ($m.PSObject.Properties['benchmark_policy']) {
+                $policy = ([string]$m.benchmark_policy).ToLowerInvariant()
+                if ($policy -notin @('default', 'opt-in', 'disabled')) { throw "miner '$($m.id)' has invalid benchmark_policy '$policy'" }
+            }
             if ($null -eq $m.assets -or @($m.assets).Count -eq 0) { throw "miner '$($m.id)' must have assets" }
             foreach ($a in @($m.assets)) {
                 foreach ($field in @('os', 'arch', 'pattern')) {

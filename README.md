@@ -225,7 +225,9 @@ or `q` to quit.
 | `--delay=...` | Restart delay in seconds (default 10) |
 | `--dry-run` | Resolve release + print command without launching |
 | `--reconfigure` | Re-run setup: ask for wallet, node, threads again (old config kept in `config.bak`) |
-| `--benchmark` | Benchmark all supported miners |
+| `--benchmark` | Benchmark approved miners; closed/partially closed miners are skipped |
+| `--include-closed-source` | Explicitly include closed/partially closed miners after a warning |
+| `--yes` | Confirm an opt-in benchmark non-interactively (use only after reviewing the risk) |
 | `--bench-time=...` | Benchmark seconds per miner (default 30) |
 | `--output-dir=...` | Where binaries are stored (default `bin/`) |
 | `--add-exclusion` | Add a Windows Defender folder exclusion for `bin/` (Windows, UAC prompt) |
@@ -251,7 +253,8 @@ pwsh ./mine.ps1 --miner=tnn --dev-fee=1
 | `--auto-restart` / `--max-restart=...` / `--delay=...` | Auto-restart controls |
 | `--dry-run` | Resolve release + print command without launching |
 | `--reconfigure` | Re-run setup: ask for wallet, node, threads again (old config kept in `config.bak`) |
-| `--benchmark` / `--bench-time=...` | Benchmark mode |
+| `--benchmark` / `--bench-time=...` | Benchmark approved miners by default; closed/partially closed miners require opt-in |
+| `--include-closed-source` / `--yes` | Explicitly opt in to risky miners; `--yes` confirms non-interactively |
 | `--output-dir=...` | Where binaries are stored (default `bin/`) |
 | `--config=...` | Config path (default `config.json`) |
 | `-h` / `--help` / `/?` | Show usage and exit |
@@ -357,17 +360,23 @@ path is printed when the loop exits.
 
 ## Benchmark history
 
-`--benchmark` saves each miner's effective hashrate to `bin/.benchmarks.json`.
-The next run shows a **Δ vs last** column — a signed diff against your previous
-benchmark (e.g. `+660.0` or `-120.5`, with `—` for miners that are new). This
-makes it easy to spot hashrate regressions after an upgrade or a hardware
-change, without keeping manual notes. Results are compared by miner id.
+`--benchmark` saves each approved miner's effective hashrate to
+`bin/.benchmarks.json`. By default it skips closed-source or partially
+closed-source miners such as DeroLuna and TNN. To include them, use
+`--include-closed-source`; deromine displays a warning and asks for confirmation
+before downloading or launching them. For deliberate non-interactive use, add
+`--yes` only after reviewing the catalog and upstream sources. The next run
+shows a **Δ vs last** column — a signed diff against your previous benchmark
+(e.g. `+660.0` or `-120.5`, with `—` for miners that are new). This makes it easy
+to spot hashrate regressions after an upgrade or a hardware change, without
+keeping manual notes. Results are compared by miner id.
 
 ## How It Works
 
 1. **Catalog (`miners.json`)** defines each miner: release repo (GitHub or GitLab),
    per-OS/arch asset patterns, CLI flag map, dev fee, hardware requirements, risk
-   rating, and the list of known daemon endpoints.
+   rating, benchmark policy (`default`, `opt-in`, or `disabled`), and the list of
+   known daemon endpoints.
 2. **Startup validation** checks `miners.json` and the selected config file before
    entering list, benchmark, or mining modes. Malformed JSON or missing required
    fields fails with a short actionable message instead of a property-access stack
@@ -405,8 +414,11 @@ change, without keeping manual notes. Results are compared by miner id.
    hides a normal miner until it succeeds again; self-test-gated GPU miners
    (go-gpu) are listed only once `.ok` exists. `--miner=<id>` still force-runs
    a hidden miner.
-9. **Benchmark mode** runs each supported miner for a fixed window, parses the
-   reported hashrate, and prints a comparison table.
+9. **Benchmark mode** runs each approved miner for a fixed window, parses the
+   reported hashrate, and prints a comparison table. Closed/partially closed
+   miners are not downloaded or launched unless `--include-closed-source` is
+   supplied and the user confirms the warning (`--yes` is the explicit
+   non-interactive confirmation).
 
 ## Testing
 

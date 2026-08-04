@@ -27,6 +27,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "benchmark_policy": "default",
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "dirtybird-miner-amd64-*.tar.gz" },
@@ -43,6 +44,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "benchmark_policy": "default",
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Rust-Miner-amd64-*.tar.gz" },
@@ -59,6 +61,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "benchmark_policy": "default",
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "Dirtybird-Go-Miner-amd64-*.tar.gz" },
@@ -76,6 +79,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "benchmark_policy": "default",
       "unsupported": ["termux"],
       "type": "cpu",
       "assets": [
@@ -94,6 +98,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "benchmark_policy": "default",
       "requires": ["nvidia-gpu"],
       "type": "gpu",
       "assets": [
@@ -111,6 +116,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Open source",
+      "benchmark_policy": "default",
       "requires": ["vulkan-gpu"],
       "type": "gpu",
       "startup_gate": true,
@@ -130,6 +136,7 @@
       "fee": "0%",
       "risk": "low",
       "risk_note": "Official",
+      "benchmark_policy": "default",
       "unsupported": ["termux"],
       "type": "cpu",
       "flags": {
@@ -154,6 +161,7 @@
       "fee": "10%",
       "risk": "high",
       "risk_note": "Closed source",
+      "benchmark_policy": "opt-in",
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",   "pattern": "deroluna-v*_linux_hiveos_mmpos.tar.gz" },
@@ -170,6 +178,7 @@
       "fee": "2.5%",
       "risk": "medium",
       "risk_note": "Closed DLLs",
+      "benchmark_policy": "opt-in",
       "type": "both",
       "flags": {
         "coin": "--DERO",
@@ -195,6 +204,7 @@
       "fee": "4.9%",
       "risk": "high",
       "risk_note": "Closed source",
+      "benchmark_policy": "disabled",
       "benchmark": false,
       "requires": ["nvidia-gpu"],
       "type": "gpu",

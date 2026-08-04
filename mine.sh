@@ -21,6 +21,8 @@ MAX_RESTART=5
 RESTART_DELAY=10
 BENCH_MODE=false
 BENCH_TIME=30
+INCLUDE_CLOSED_SOURCE=false
+ASSUME_YES=false
 DEV_FEE_OVERRIDE=""
 RECONFIGURE=false
 
@@ -40,7 +42,9 @@ Usage: deromine [options]
   --max-restart=<n>      Max restarts (default 5)
   --delay=<sec>          Restart delay in seconds (default 10)
   --dry-run              Resolve release and print command, do not launch
-  --benchmark            Benchmark all supported miners
+  --benchmark            Benchmark approved miners (closed-source miners skipped)
+  --include-closed-source Include closed/partially closed miners (explicit opt-in)
+  --yes                  Confirm an opt-in benchmark non-interactively
   --bench-time=<sec>     Benchmark seconds per miner (default 30)
   --output-dir=<dir>     Where binaries are stored (default ./bin)
   --config=<path>        Config file (default ./config.json)
@@ -66,6 +70,8 @@ while [[ $# -gt 0 ]]; do
         --max-restart=*) MAX_RESTART="${1#*=}"; shift ;;
         --delay=*) RESTART_DELAY="${1#*=}"; shift ;;
         --benchmark) BENCH_MODE=true; shift ;;
+        --include-closed-source) INCLUDE_CLOSED_SOURCE=true; shift ;;
+        --yes) ASSUME_YES=true; shift ;;
         --bench-time=*) BENCH_TIME="${1#*=}"; shift ;;
         --output-dir=*) BIN_DIR="${1#*=}"; shift ;;
         --config=*) CONFIG_FILE="${1#*=}"; shift ;;
@@ -175,7 +181,10 @@ validate_catalog_file() {
             ((.name | type) != "string") or ((.name | length) == 0) or
             ((.binary | type) != "string") or ((.binary | length) == 0) or
             ((.repo | type) != "string") or ((.repo | length) == 0) or
-            ((.fee | type) != "string") or ((.assets | type) != "array") or
+            ((.fee | type) != "string") or
+            (has("benchmark_policy") and (.benchmark_policy | type) != "string") or
+            (has("benchmark_policy") and (.benchmark_policy | IN("default", "opt-in", "disabled") | not)) or
+            ((.assets | type) != "array") or
             ((.assets | length) == 0) or any(.assets[];
                 ((.os | type) != "string") or ((.os | length) == 0) or
                 ((.arch | type) != "string") or ((.arch | length) == 0) or
@@ -261,6 +270,19 @@ get_binary_name() {
         name="${name}.exe"
     fi
     echo "$name"
+}
+
+benchmark_policy() {
+    local miner_json="$1" policy
+    if [ "$(echo "$miner_json" | jq -r 'if (.benchmark == false) then "disabled" else "" end')" = "disabled" ]; then
+        echo "disabled"
+        return
+    fi
+    policy=$(echo "$miner_json" | jq -r '.benchmark_policy // "opt-in"')
+    case "$policy" in
+        default|opt-in|disabled) echo "$policy" ;;
+        *) echo "opt-in" ;;
+    esac
 }
 
 get_archive_binary_name() {
@@ -836,7 +858,9 @@ while IFS= read -r m; do
 done < <(read_catalog)
 [ "${#MINER_JSONS[@]}" -eq 0 ] && { echo "${C_ERR}[x] No miners in catalog${C_RESET}"; exit 1; }
 
+ALL_SUPPORTED=()
 SUPPORTED=()
+BENCH_OPT_IN=()
 for m in "${MINER_JSONS[@]}"; do
     pattern=$(get_asset_pattern "$m")
     [ -z "$pattern" ] && continue
@@ -845,6 +869,15 @@ for m in "${MINER_JSONS[@]}"; do
     # miners (go-gpu) are listed only once a launch proved they work here;
     # other miners are hidden after one confirmed startup failure.
     if ! miner_listable_on_host "$BIN_DIR" "$m"; then continue; fi
+    policy=$(benchmark_policy "$m")
+    ALL_SUPPORTED+=("$m")
+    if [ "$policy" = "disabled" ]; then
+        continue
+    fi
+    if [ "$policy" = "opt-in" ]; then
+        BENCH_OPT_IN+=("$m")
+        if [ "$INCLUDE_CLOSED_SOURCE" = false ]; then continue; fi
+    fi
     SUPPORTED+=("$m")
 done
 
@@ -900,6 +933,34 @@ if $BENCH_MODE; then
     LIVE_DAEMON="${DAEMON_URL#http://}"
     LIVE_DAEMON="${LIVE_DAEMON#https://}"
 
+    if [ "${#BENCH_OPT_IN[@]}" -gt 0 ] && [ "$INCLUDE_CLOSED_SOURCE" = true ]; then
+        echo "" >&2
+        echo "${C_ERR}WARNING: this will download and execute closed-source or partially closed-source miners.${C_RESET}" >&2
+        opt_names=()
+        for opt_m in "${BENCH_OPT_IN[@]}"; do opt_names+=("$(echo "$opt_m" | jq -r '.name')"); done
+        echo "${C_ERR}Affected miners: ${opt_names[*]}${C_RESET}" >&2
+        if [ "$ASSUME_YES" = true ]; then
+            echo "Non-interactive confirmation supplied with --yes." >&2
+        else
+            if [ ! -t 0 ]; then
+                echo "${C_ERR}Non-interactive input detected; rerun with --yes only after reviewing the risk.${C_RESET}" >&2
+                exit 1
+            fi
+            printf "Continue with these miners? [y/N] " >&2
+            read -r answer || answer=""
+            if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+                echo "Benchmark cancelled; no opt-in miners were run." >&2
+                exit 0
+            fi
+        fi
+    fi
+    if [ "${#BENCH_OPT_IN[@]}" -gt 0 ] && [ "$INCLUDE_CLOSED_SOURCE" = false ]; then
+        opt_names=()
+        for opt_m in "${BENCH_OPT_IN[@]}"; do opt_names+=("$(echo "$opt_m" | jq -r '.name')"); done
+        echo "Skipped untrusted miners: ${opt_names[*]}" >&2
+        echo "Use --include-closed-source to opt in; add --yes for non-interactive confirmation." >&2
+    fi
+
     if [ "${#SUPPORTED[@]}" -eq 0 ]; then
         echo "${C_ERR}[x] No miners available to benchmark on this host${C_RESET}"
         exit 1
@@ -914,8 +975,13 @@ if $BENCH_MODE; then
         id=$(echo "$m" | jq -r '.id')
         name=$(echo "$m" | jq -r '.name // .id')
         fee=$(echo "$m" | jq -r '.fee // "0%"')
-        if [ "$(echo "$m" | jq -r 'if (.benchmark == false) then "false" else "true" end')" = "false" ]; then
+        policy=$(benchmark_policy "$m")
+        if [ "$policy" = "disabled" ]; then
             echo "  ${C_DIM}[skip] $name: benchmark disabled in catalog${C_RESET}"
+            return
+        fi
+        if [ "$policy" = "opt-in" ] && [ "$INCLUDE_CLOSED_SOURCE" = false ]; then
+            echo "  ${C_DIM}[skip] $name: closed/partially closed miner requires --include-closed-source${C_RESET}"
             return
         fi
         repo=$(echo "$m" | jq -r '.repo')
@@ -1049,7 +1115,7 @@ fi
 if [ "$MINER_ID" = "list" ]; then
     draw_banner
     draw_section "MINER CATALOG  ·  $OS/$ARCH"
-    draw_miner_table "${SUPPORTED[@]:-}"
+    draw_miner_table "${ALL_SUPPORTED[@]:-}"
     exit 0
 fi
 
@@ -1057,15 +1123,15 @@ fi
 if [ -z "$MINER_ID" ] || [ "$MINER_ID" = "interactive" ]; then
     draw_banner
     draw_section "SELECT A MINER  ·  $OS/$ARCH" >&2
-    draw_miner_table "${SUPPORTED[@]:-}" >&2
-    if [ "${#SUPPORTED[@]}" -eq 0 ]; then
+    draw_miner_table "${ALL_SUPPORTED[@]:-}" >&2
+    if [ "${#ALL_SUPPORTED[@]}" -eq 0 ]; then
         echo "${C_ERR}[x] No miners available on this host${C_RESET}" >&2
         exit 1
     fi
-    printf "Choice (1-%d): " "${#SUPPORTED[@]}" >&2
+    printf "Choice (1-%d): " "${#ALL_SUPPORTED[@]}" >&2
     read -r choice
     choice=$((choice - 1))
-    MINER_JSON="${SUPPORTED[$choice]:-}"
+    MINER_JSON="${ALL_SUPPORTED[$choice]:-}"
     MINER_ID=$(echo "$MINER_JSON" | jq -r '.id')
 else
     MINER_JSON=$(get_miner_by_id "$MINER_ID")

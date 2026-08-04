@@ -100,6 +100,23 @@ if [[ "$bash_help" == *"cross-platform DERO miner launcher"* ]]; then
 else
     fail "bash help/banner has visual subtitle"
 fi
+if [[ "$bash_help" == *"--include-closed-source"* && "$bash_help" == *"--yes"* ]]; then
+    pass "bash help documents benchmark trust controls"
+else
+    fail "bash help documents benchmark trust controls"
+fi
+if jq -e '.miners[] | select(.id == "deroluna") | .benchmark_policy == "opt-in"' miners.json >/dev/null 2>&1 \
+    && jq -e '.miners[] | select(.id == "tnn") | .benchmark_policy == "opt-in"' miners.json >/dev/null 2>&1 \
+    && jq -e '.miners[] | select(.id == "astronv") | .benchmark_policy == "disabled"' miners.json >/dev/null 2>&1; then
+    pass "catalog marks closed miners opt-in and Astronv disabled"
+else
+    fail "catalog marks closed miners opt-in and Astronv disabled"
+fi
+if grep -q 'ALL_SUPPORTED' mine.sh && grep -q 'BENCH_OPT_IN' mine.sh && grep -q 'closed/partially closed miner requires' mine.sh; then
+    pass "bash separates normal miner list from benchmark trust gate"
+else
+    fail "bash separates normal miner list from benchmark trust gate"
+fi
 
 # 5. All catalog ids resolve a binary name for the current OS/arch
 echo ""
