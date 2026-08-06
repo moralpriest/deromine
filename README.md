@@ -110,11 +110,13 @@ bash-only fallback.
 ### One-liner without PowerShell (Linux/macOS/Termux)
 
 If `pwsh` isn't installed, the bash installer offers to install PowerShell 7
-using the native package manager (Ubuntu/Debian, Fedora/RHEL, macOS Homebrew,
-or Termux `pkg`) before continuing. In `curl ... | bash` mode it reads the
-confirmation from `/dev/tty`, so the prompt still works when stdin is the script
-pipe. On Windows, `install.ps1` offers the same
-choice through `winget`. Set `DEROMINE_AUTO_INSTALL_PWSH=1` to approve an
+using the native package manager (Ubuntu/Debian, Fedora/RHEL, macOS Homebrew)
+before continuing. **On Termux/Android, PowerShell 7 is not packaged, so the
+installer never prompts for or attempts an install — the bash fallback is the
+official interface there and no PowerShell notice is printed.** In
+`curl ... | bash` mode it reads the confirmation from `/dev/tty`, so the prompt
+still works when stdin is the script pipe. On Windows, `install.ps1` offers the
+same choice through `winget`. Set `DEROMINE_AUTO_INSTALL_PWSH=1` to approve an
 unattended install, or `DEROMINE_SKIP_PWSH=1` to skip it. Without a TTY or
 explicit approval, the installer only prints the official manual install guide.
 

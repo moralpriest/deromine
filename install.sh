@@ -67,13 +67,10 @@ install_pwsh_if_missing() {
     command -v pwsh >/dev/null 2>&1 && return 0
 
     if $is_termux; then
-        # PowerShell 7 is NOT packaged for Termux (no apt/brew/snap path).
-        # Don't prompt or attempt a doomed install; the bash fallback is the
-        # official, fully-functional interface on Android. (The guide below
-        # is printed by the caller.)
-        echo "  [!] PowerShell 7 not found (it is not packaged for Termux);" >&2
-        echo "      the bash fallback is fully functional — pwsh only adds a menu UI." >&2
-        return 1
+        # PowerShell 7 is NOT packaged for Termux (no apt/brew/snap path), and
+        # the bash fallback is the official, fully-functional interface on
+        # Android — there is nothing to install and nothing to report.
+        return 0
     fi
 
     [ "${DEROMINE_SKIP_PWSH:-0}" = "1" ] && {
@@ -275,9 +272,9 @@ echo ""
 if command -v pwsh >/dev/null 2>&1; then
     echo "  PowerShell 7 found — full interactive UI enabled."
 elif $is_termux; then
-    echo "  PowerShell 7 is not packaged for Termux — the bash fallback IS the"
-    echo "  official interface here. (pwsh ARM builds exist for proot-distro:"
-    echo "  https://github.com/PowerShell/PowerShell/releases)"
+    # On Termux/Android the bash fallback IS the full interface (PowerShell 7
+    # is not packaged there), so no PowerShell note is printed.
+    echo "  [*] Bash fallback enabled — the full deromine interface on Termux/Android."
 else
     echo "  PowerShell 7 (pwsh) not found. The bash fallback still works,"
     echo "  but for the full interactive menu install PowerShell 7 first:"
