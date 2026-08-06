@@ -68,7 +68,12 @@ function Get-GithubLatestRelease {
     param([string]$Repo)
     $url = "https://api.github.com/repos/$Repo/releases/latest"
     try {
-        $resp = Invoke-WebRequest -Uri $url -Headers @{ 'Accept' = 'application/vnd.github.v3+json' } -UseBasicParsing -TimeoutSec 30
+        # GitHub's API requires (and its terms encourage) a User-Agent;
+        # identify the app so the request is clearly a real deromine user.
+        $headers = @{ 'Accept' = 'application/vnd.github.v3+json' }
+        if ($script:DeromineVersion) { $headers['User-Agent'] = "deromine/$script:DeromineVersion" }
+        else { $headers['User-Agent'] = 'deromine' }
+        $resp = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -TimeoutSec 30
         $json = $resp.Content | ConvertFrom-Json
         return [PSCustomObject]@{
             Tag       = [string]$json.tag_name
@@ -418,4 +423,40 @@ function Test-CachedBinaryUsable {
     }
     if ($cachedTag -ne $ResolvedTag) { return $false }
     return (Test-BinaryIntegrity $BinaryPath $Os)
+}
+
+# ── Release-tag cache ──
+# GitHub/GitLab rate-limit unauthenticated release-API requests (GitHub:
+# 60/hr per IP). Once a binary has been fetched at tag T, re-runs within the
+# TTL skip the API entirely and trust the cached tag, so a normal user hits
+# the API once per miner per TTL instead of on every run. Set
+# $env:DEROMINE_TAG_CACHE_TTL = 0 to always check for a new release.
+$script:TagCacheTtlSec = 21600
+if ($env:DEROMINE_TAG_CACHE_TTL) {
+    # TryParse: a malformed value (e.g. "abc") must never crash the launcher
+    # at dot-source time — it just keeps the default TTL.
+    $ttl = [int64]0
+    if ([int64]::TryParse([string]$env:DEROMINE_TAG_CACHE_TTL, [ref]$ttl) -and $ttl -ge 0) {
+        $script:TagCacheTtlSec = $ttl
+    }
+}
+
+# True when the binary exists, has a recorded release tag, is still intact,
+# and the tag was fetched within the TTL (timestamp written next to the
+# binary as .tagtime). The integrity check keeps a corrupt binary inside the
+# TTL from being silently trusted — it re-checks the release instead.
+function Test-CachedTagFresh {
+    param([string]$BinaryPath, [string]$Os)
+    if (-not (Test-Path -LiteralPath $BinaryPath)) { return $false }
+    if (-not (Test-Path -LiteralPath "$BinaryPath.tag")) { return $false }
+    if (-not (Test-BinaryIntegrity $BinaryPath $Os)) { return $false }
+    $ttPath = "$BinaryPath.tagtime"
+    if (-not (Test-Path -LiteralPath $ttPath)) { return $false }
+    try {
+        $ts = [int64]((Get-Content -LiteralPath $ttPath -Raw -ErrorAction Stop).Trim())
+        $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $ts
+        return ($age -ge 0 -and $age -lt $script:TagCacheTtlSec)
+    } catch {
+        return $false
+    }
 }

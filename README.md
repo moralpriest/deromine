@@ -403,10 +403,18 @@ keeping manual notes. Results are compared by miner id.
    dependencies (Windows releases ship DLLs next to the exe, e.g.
    `libstdc++-6.dll`). The cache is
    **version-aware**: the release tag is recorded next to each binary
-   (`<binary>.tag`), and each binary is integrity-checked (valid
+   (`<binary>.tag`), and each binary is   integrity-checked (valid
    ELF/Mach-O/PE magic, non-trivial size) before use. A stale or corrupt cached
    binary is silently re-downloaded — so a new upstream release or an
    interrupted download can never leave a broken miner in place.
+   **Release-API caching**: GitHub/GitLab rate-limit unauthenticated release-API
+   requests (60/hr per IP on GitHub), so while a miner's recorded tag is fresh
+   (default 6 hours; set `DEROMINE_TAG_CACHE_TTL` in seconds, `0` to always
+   check) deromine skips the release API entirely and trusts the cached binary
+   — a normal user hits the API once per miner per TTL instead of on every run.
+   GitHub API calls identify deromine with a `User-Agent` header. If the release
+   API is unreachable (rate-limited or offline) but a cached binary exists, the
+   cached tag is used instead of failing.
 7. **Command building** uses the miner's `flags` map from the catalog (daemon,
    wallet, threads, coin, port, dev fee), defaulting to the Dirtybird short-flag
    convention (`-d`, `-w`, `-t`). Any `http(s)://` scheme is stripped from the

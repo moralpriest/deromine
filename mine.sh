@@ -8,6 +8,7 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 DEFAULT_DAEMON_PORT=10100
 DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
+DEROMINE_VERSION="1.1.2"
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"
@@ -100,7 +101,7 @@ parse_cli_args() {
             --config=*) CONFIG_FILE="${1#*=}"; shift ;;
             --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
             -h|--help|help|/\?) show_help; exit 0 ;;
-            --version) echo "deromine 1.1.1"; exit 0 ;;
+            --version) echo "deromine $DEROMINE_VERSION"; exit 0 ;;
             --reconfigure) RECONFIGURE=true; shift ;;
             *) echo "Unknown: $1"; exit 1 ;;
         esac
@@ -364,6 +365,27 @@ cached_binary_usable() {
     binary_integrity_ok "$path"
 }
 
+# ── Release-tag cache ──
+# GitHub/GitLab rate-limit unauthenticated release-API requests (GitHub:
+# 60/hr per IP). Once a binary has been fetched at tag T, re-runs within
+# TAG_CACHE_TTL skip the API entirely and trust the cached tag, so a normal
+# user hits the API once per miner per TTL instead of on every run.
+# Set DEROMINE_TAG_CACHE_TTL=0 to always check for a new release.
+TAG_CACHE_TTL=${DEROMINE_TAG_CACHE_TTL:-21600}
+
+# True when the binary exists, has a recorded release tag, and the tag was
+# fetched within TAG_CACHE_TTL (timestamp written by fetch_binary into
+# $BINARY_PATH.tagtime).
+cached_tag_fresh() {
+    local path="$1" now age
+    [ -f "$path" ] || return 1
+    [ -f "$path.tag" ] || return 1
+    [ -f "$path.tagtime" ] || return 1
+    now=$(date +%s 2>/dev/null || echo 0)
+    age=$(( now - $(cat "$path.tagtime" 2>/dev/null || echo 0) ))
+    [ "$age" -ge 0 ] && [ "$age" -lt "${TAG_CACHE_TTL:-21600}" ]
+}
+
 # Copy a nested extraction dir's contents up to $MINER_DIR so the canonical
 # binary keeps its dependencies (Windows releases ship DLLs next to the exe,
 # e.g. libstdc++-6.dll - a lone exe cannot start without them). Uses the
@@ -495,8 +517,10 @@ fetch_binary() {
         rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
         return 1
     fi
-    # Record the release tag so future runs can detect a stale cache.
+    # Record the release tag (and when it was fetched) so future runs can
+    # detect a stale cache and skip the release API while it is fresh.
     printf '%s\n' "$TAG" > "$BINARY_PATH.tag"
+    date +%s > "$BINARY_PATH.tagtime" 2>/dev/null || true
 }
 
 # ── Hardware detection ──
@@ -831,7 +855,12 @@ gitlab_id() {
 
 resolve_github() {
     API_URL="https://api.github.com/repos/$REPO/releases/latest"
-    API_RESP=$(curl -sf "$API_URL") || { echo "${C_ERR}[x] GitHub API failed${C_RESET}"; exit 1; }
+    # GitHub's API requires (and its terms encourage) a User-Agent; identify
+    # the app so the request is clearly a real deromine user, not a scraper.
+    if ! API_RESP=$(curl -sf -H "User-Agent: deromine/$DEROMINE_VERSION" -H "Accept: application/vnd.github.v3+json" "$API_URL"); then
+        echo "${C_ERR}[x] GitHub API failed${C_RESET}"
+        return 1
+    fi
     TAG=$(echo "$API_RESP" | jq -r '.tag_name')
     ARCHIVE_NAME=$(echo "$API_RESP" | jq -r --arg p "$ASSET_PATTERN" '.assets[].name | select(. | test($p | gsub("\\*";".*")))')
     DOWNLOAD_URL=$(echo "$API_RESP" | jq -r --arg n "$ARCHIVE_NAME" '.assets[] | select(.name == $n) | .browser_download_url')
@@ -841,7 +870,10 @@ resolve_gitlab_release() {
     local id api resp name path
     id=$(gitlab_id)
     api="https://gitlab.com/api/v4/projects/$id/releases/permalink/latest"
-    resp=$(curl -sfL "$api") || { echo "${C_ERR}[x] GitLab API failed${C_RESET}"; exit 1; }
+    if ! resp=$(curl -sfL "$api"); then
+        echo "${C_ERR}[x] GitLab API failed${C_RESET}"
+        return 1
+    fi
     TAG=$(echo "$resp" | jq -r '.tag_name')
     ARCHIVE_NAME=""
     DOWNLOAD_URL=""
@@ -858,12 +890,21 @@ resolve_gitlab_branch() {
     local id api resp dirs version name path
     id=$(gitlab_id)
     api="https://gitlab.com/api/v4/projects/$id/repository/tree"
-    resp=$(curl -sfL "$api?path=$RELEASE_PATH&ref=$BRANCH&per_page=100") || { echo "${C_ERR}[x] GitLab API failed (branch tree)${C_RESET}"; exit 1; }
+    if ! resp=$(curl -sfL "$api?path=$RELEASE_PATH&ref=$BRANCH&per_page=100"); then
+        echo "${C_ERR}[x] GitLab API failed (branch tree)${C_RESET}"
+        return 1
+    fi
     dirs=$(echo "$resp" | jq -r '.[] | select(.type == "tree" and (.name | test("^v?[0-9.]+$"))) | .name')
-    [ -z "$dirs" ] && { echo "${C_ERR}[x] No version dirs under $RELEASE_PATH in $REPO${C_RESET}"; exit 1; }
+    if [ -z "$dirs" ]; then
+        echo "${C_ERR}[x] No version dirs under $RELEASE_PATH in $REPO${C_RESET}"
+        return 1
+    fi
     version=$(echo "$dirs" | awk '{ v=$0; sub(/^v/,"",v); n=split(v,a,"."); for(i=1;i<=3;i++){ a[i]=(a[i]+0)*1 }; score=a[1]*1000000+a[2]*1000+a[3]; print score, $0 }' | sort -n | tail -1 | cut -d' ' -f2-)
     TAG="$version"
-    resp=$(curl -sfL "$api?path=$RELEASE_PATH/$version&ref=$BRANCH&per_page=100") || { echo "${C_ERR}[x] GitLab API failed (file list)${C_RESET}"; exit 1; }
+    if ! resp=$(curl -sfL "$api?path=$RELEASE_PATH/$version&ref=$BRANCH&per_page=100"); then
+        echo "${C_ERR}[x] GitLab API failed (file list)${C_RESET}"
+        return 1
+    fi
     ARCHIVE_NAME=""
     DOWNLOAD_URL=""
     while IFS= read -r name; do
@@ -874,6 +915,44 @@ resolve_gitlab_branch() {
             break
         fi
     done < <(echo "$resp" | jq -r '.[] | select(.type == "blob") | .name')
+}
+
+# Dispatch to the host-specific resolver. Returns 1 when the release API call
+# fails (rate-limited, offline) so resolve_release can fall back to a cached
+# tag instead of failing outright.
+resolve_for_host() {
+    case "$HOST" in
+        gitlab-release) resolve_gitlab_release ;;
+        gitlab-branch)  resolve_gitlab_branch ;;
+        *)              resolve_github ;;
+    esac
+}
+
+# Resolve the latest release tag + asset, skipping the release API entirely
+# while the cached binary's tag is fresh (cached_tag_fresh). On API failure,
+# falls back to the last recorded tag when the binary is cached. Requires
+# BINARY_PATH and the resolve_* globals; sets TAG (+ ARCHIVE_NAME and
+# DOWNLOAD_URL when a release was actually resolved).
+resolve_release() {
+    local cached=""
+    # The cache-skip also requires the binary to still pass its integrity
+    # check: a corrupt binary inside the TTL must NOT be silently trusted.
+    if [ "$DRY_RUN" != true ] && cached_tag_fresh "$BINARY_PATH" && binary_integrity_ok "$BINARY_PATH"; then
+        TAG=$(cat "$BINARY_PATH.tag")
+        echo "${C_DIM}  Using cached tag $TAG (release API skipped for ${TAG_CACHE_TTL}s)${C_RESET}" >&2
+        return 0
+    fi
+    [ -f "$BINARY_PATH.tag" ] && cached=$(cat "$BINARY_PATH.tag")
+    echo "${C_HDR}Resolving latest release for $REPO...${C_RESET}" >&2
+    if ! resolve_for_host; then
+        if [ -n "$cached" ] && [ -f "$BINARY_PATH" ]; then
+            echo "${C_DIM}  (release API unreachable; using cached tag $cached)${C_RESET}" >&2
+            TAG="$cached"
+            return 0
+        fi
+        return 1
+    fi
+    return 0
 }
 
 # ── Collect catalog into arrays ──
@@ -1021,15 +1100,15 @@ if $BENCH_MODE; then
         MINER_DIR="$BIN_DIR/$id"
         mkdir -p "$MINER_DIR"
         BINARY_PATH="$MINER_DIR/$bname"
-        # Resolve always (needed for the version-aware cache check).
+        # Resolve (skips the release API while the cached tag is fresh).
         REPO="$repo"; HOST="$host"; BRANCH="$branch"; RELEASE_PATH="$rpath"; ASSET_PATTERN="$pattern"
-        case "$HOST" in
-            gitlab-release) resolve_gitlab_release ;;
-            gitlab-branch)  resolve_gitlab_branch ;;
-            *)              resolve_github ;;
-        esac
+        if ! resolve_release; then
+            echo "  ${C_ERR}[x] $name: release resolve failed (no cached tag)${C_RESET}"; return
+        fi
         if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
-            echo "  ${C_ERR}[x] $name: no matching asset${C_RESET}"; return
+            if [ ! -f "$BINARY_PATH" ]; then
+                echo "  ${C_ERR}[x] $name: no matching asset${C_RESET}"; return
+            fi
         fi
         if [ ! -f "$BINARY_PATH" ]; then
             echo "  ${C_DIM}[fetch] $name ($TAG)${C_RESET}"
@@ -1267,29 +1346,35 @@ printf '%b\n' "${C_DIM}${T_V}  daemon  ${C_NAME}${DAEMON_URL}${C_RESET}"
 printf '%b\n' "${C_DIM}${T_V}  threads ${C_NAME}${THREAD_COUNT}${C_RESET}"
 
 # ── Resolve download ──
+# The release API is skipped entirely while the cached tag is fresh
+# (resolve_release); MINER_DIR/BINARY_PATH are needed up front for that check.
 REPO=$(echo "$MINER_JSON" | jq -r '.repo')
 HOST=$(echo "$MINER_JSON" | jq -r '.host // "github"')
 BRANCH=$(echo "$MINER_JSON" | jq -r '.branch // "main"')
 RELEASE_PATH=$(echo "$MINER_JSON" | jq -r '.release_path // "releases"')
+MINER_DIR="$BIN_DIR/$MINER_ID"
+mkdir -p "$MINER_DIR"
+BINARY_PATH="$MINER_DIR/$BINARY_NAME"
 echo "" >&2
-echo "${C_HDR}Resolving latest release for $REPO...${C_RESET}" >&2
 
-case "$HOST" in
-    gitlab-release) resolve_gitlab_release ;;
-    gitlab-branch)  resolve_gitlab_branch ;;
-    *)              resolve_github ;;
-esac
-
-if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
-    echo "${C_ERR}[x] No matching asset for pattern: $ASSET_PATTERN${C_RESET}" >&2
-    if [ -n "${API_RESP:-}" ] && [ "$HOST" != "gitlab-release" ] && [ "$HOST" != "gitlab-branch" ]; then
-        echo "  ${C_DIM}Available assets in the latest release:${C_RESET}" >&2
-        echo "$API_RESP" | jq -r '.assets[].name' | sed 's/^/    /' >&2
-    fi
+if ! resolve_release; then
+    echo "${C_ERR}[x] Could not resolve latest release for $REPO (release API failed and no cached tag)${C_RESET}" >&2
     exit 1
 fi
-echo "  ${C_DIM}Tag:   $TAG${C_RESET}" >&2
-echo "  ${C_DIM}Asset: $ARCHIVE_NAME${C_RESET}" >&2
+if [ -n "$ARCHIVE_NAME" ] && [ -n "$DOWNLOAD_URL" ]; then
+    echo "  ${C_DIM}Tag:   $TAG${C_RESET}" >&2
+    echo "  ${C_DIM}Asset: $ARCHIVE_NAME${C_RESET}" >&2
+fi
+if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
+    if [ ! -f "$BINARY_PATH" ]; then
+        echo "${C_ERR}[x] No matching asset for pattern: $ASSET_PATTERN${C_RESET}" >&2
+        if [ -n "${API_RESP:-}" ] && [ "$HOST" != "gitlab-release" ] && [ "$HOST" != "gitlab-branch" ]; then
+            echo "  ${C_DIM}Available assets in the latest release:${C_RESET}" >&2
+            echo "$API_RESP" | jq -r '.assets[].name' | sed 's/^/    /' >&2
+        fi
+        exit 1
+    fi
+fi
 
 # ── Dry-run ──
 if $DRY_RUN; then
@@ -1314,10 +1399,6 @@ fi
 
 # ── Download & extract (version-aware cache: a stale or corrupt cached
 #    binary is re-downloaded instead of being used forever) ──
-MINER_DIR="$BIN_DIR/$MINER_ID"
-mkdir -p "$MINER_DIR"
-BINARY_PATH="$MINER_DIR/$BINARY_NAME"
-
 if [ ! -f "$BINARY_PATH" ]; then
     fetch_binary || exit 1
 elif ! cached_binary_usable "$BINARY_PATH" "$TAG"; then

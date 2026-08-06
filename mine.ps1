@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$script:DeromineVersion = '1.1.1'
+$script:DeromineVersion = '1.1.2'
 
 # ── Load helpers (dot-source .ps1, not .psm1, to avoid scope/export issues) ──
 $projectDir = $PSScriptRoot
@@ -383,14 +383,45 @@ $dir = Split-Path -Parent $configPath
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 Write-Config $configPath $config
 
+# ── Setup directories (before resolve so the tag cache can be checked) ──
+$minerDir = Join-Path $outputDir $miner.id
+if (-not (Test-Path $minerDir)) {
+    New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
+}
+$binaryPath = Join-Path $minerDir $binaryName
+
 # ── Resolve real download URL from GitHub/GitLab (runtime) ──
+# The release API is skipped entirely while the cached binary's recorded tag
+# is fresh (Test-CachedTagFresh) — GitHub/GitLab rate-limit unauthenticated
+# API calls, and a normal user re-runs deromine far more often than a miner
+# gets a new release. --dry-run always checks, since it reports the asset URL.
 $repoHost = [string]$miner.host
 if (-not $repoHost) { $repoHost = 'github' }
 $repoBranch = [string]$miner.branch
 $repoReleasePath = [string]$miner.release_path
-Write-Host "`nResolving latest release for $($miner.repo)..." -ForegroundColor Cyan
-$resolved = Resolve-DownloadAsset -Repo $miner.repo -RepoHost $repoHost -Branch $repoBranch -ReleasePath $repoReleasePath -Os $platform.os -Arch $platform.arch -Pattern $assetPattern
-if (-not $resolved) { exit 1 }
+$cachedTag = $null
+$tagPath = "$binaryPath.tag"
+if (Test-Path -LiteralPath $tagPath) {
+    $cachedTag = (Get-Content -LiteralPath $tagPath -Raw -ErrorAction SilentlyContinue).Trim()
+}
+$resolved = $null
+if (-not $dryRun -and (Test-CachedTagFresh $binaryPath $platform.os)) {
+    Write-Host "`nUsing cached release tag $cachedTag (release API skipped)" -ForegroundColor DarkCyan
+    $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
+} else {
+    Write-Host "`nResolving latest release for $($miner.repo)..." -ForegroundColor Cyan
+    $resolved = Resolve-DownloadAsset -Repo $miner.repo -RepoHost $repoHost -Branch $repoBranch -ReleasePath $repoReleasePath -Os $platform.os -Arch $platform.arch -Pattern $assetPattern
+}
+if (-not $resolved) {
+    # Rate-limited/offline: fall back to the last recorded tag when the
+    # binary is cached, so deromine keeps working during API outages.
+    if ($cachedTag -and (Test-Path -LiteralPath $binaryPath)) {
+        Write-Host "  (release API unreachable; using cached tag $cachedTag)" -ForegroundColor DarkYellow
+        $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
+    } else {
+        exit 1
+    }
+}
 
 $archiveName = $resolved.Name
 $downloadUrl = $resolved.Url
@@ -413,16 +444,9 @@ if ($dryRun) {
     exit 0
 }
 
-# ── Setup directories ──
-$minerDir = Join-Path $outputDir $miner.id
-if (-not (Test-Path $minerDir)) {
-    New-Item -ItemType Directory -Path $minerDir -Force | Out-Null
-}
-
 # ── Download (version-aware cache: a stale or corrupt cached binary is
 #    re-downloaded instead of being used forever) ──
 $archivePath = Join-Path $minerDir $archiveName
-$binaryPath = Join-Path $minerDir $binaryName
 $needsDownload = -not (Test-Path $binaryPath)
 if (-not $needsDownload) {
     $needsDownload = -not (Test-CachedBinaryUsable $binaryPath $resolved.Tag $platform.os)
@@ -510,8 +534,10 @@ if ($needsDownload) {
         }
         exit 1
     }
-    # Record the release tag so future runs can detect a stale cache.
+    # Record the release tag (and when it was fetched) so future runs can
+    # detect a stale cache and skip the release API while it is fresh.
     try { Set-Content -LiteralPath "$binaryPath.tag" -Value $resolved.Tag -NoNewline -ErrorAction SilentlyContinue } catch {}
+    try { Set-Content -LiteralPath "$binaryPath.tagtime" -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -NoNewline -ErrorAction SilentlyContinue } catch {}
 }
 
 # ── Build command ──

@@ -103,8 +103,19 @@ function Get-MinerBinaryPath {
     if (-not $repoHost) { $repoHost = 'github' }
     $branch = [string]$Miner.branch
     $releasePath = [string]$Miner.release_path
-    # Resolve always (needed for the version-aware cache check).
-    $resolved = Resolve-DownloadAsset -Repo $Miner.repo -RepoHost $repoHost -Branch $branch -ReleasePath $releasePath -Os $PlatformOs -Arch $PlatformArch -Pattern $pattern
+    # Resolve (skips the release API while the cached tag is fresh).
+    $cachedTag = $null
+    if (Test-Path -LiteralPath "$binaryPath.tag") {
+        $cachedTag = (Get-Content -LiteralPath "$binaryPath.tag" -Raw -ErrorAction SilentlyContinue).Trim()
+    }
+    $resolved = $null
+    if (-not (Test-CachedTagFresh $binaryPath $PlatformOs)) {
+        $resolved = Resolve-DownloadAsset -Repo $Miner.repo -RepoHost $repoHost -Branch $branch -ReleasePath $releasePath -Os $PlatformOs -Arch $PlatformArch -Pattern $pattern
+    }
+    if (-not $resolved -and $cachedTag -and (Test-Path -LiteralPath $binaryPath)) {
+        # Rate-limited/offline fallback: keep benchmarking the cached binary.
+        $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
+    }
     if (-not $resolved) { return $null }
 
     $needFetch = -not (Test-Path $binaryPath)
@@ -147,8 +158,10 @@ function Get-MinerBinaryPath {
                 Remove-Item "$binaryPath.tag" -Force -ErrorAction SilentlyContinue
                 return $null
             }
-            # Record the release tag so future runs can detect a stale cache.
+            # Record the release tag (and when it was fetched) so future runs
+            # can detect a stale cache and skip the release API while fresh.
             try { Set-Content -LiteralPath "$binaryPath.tag" -Value $resolved.Tag -NoNewline -ErrorAction SilentlyContinue } catch {}
+            try { Set-Content -LiteralPath "$binaryPath.tagtime" -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -NoNewline -ErrorAction SilentlyContinue } catch {}
             return $binaryPath
         }
         # Reached only right after a fresh fetch + lift. On Windows a missing

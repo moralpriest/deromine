@@ -342,6 +342,68 @@ if cached_binary_usable "$tmpcache/cached.bin" "v0.3.0"; then fail "missing tag 
 cp "$tmpcache/bad.bin" "$tmpcache/corrupt.bin"
 printf 'v0.3.0\n' > "$tmpcache/corrupt.bin.tag"
 if cached_binary_usable "$tmpcache/corrupt.bin" "v0.3.0"; then fail "corrupt binary forces re-download"; else pass "corrupt binary forces re-download"; fi
+# Release-tag cache: while the recorded tag is fresh the release API is
+# skipped entirely (GitHub/GitLab rate-limit unauthenticated API calls).
+eval "$(sed -n '/^cached_tag_fresh()/,/^}/p' mine.sh)"
+TAG_CACHE_TTL=21600
+now=$(date +%s)
+cp "$tmpcache/good.bin" "$tmpcache/fresh.bin"
+printf 'v0.3.0\n' > "$tmpcache/fresh.bin.tag"
+printf '%s\n' "$now" > "$tmpcache/fresh.bin.tagtime"
+if cached_tag_fresh "$tmpcache/fresh.bin"; then pass "fresh tag skips release API"; else fail "fresh tag skips release API"; fi
+printf '%s\n' "$(( now - 999999 ))" > "$tmpcache/fresh.bin.tagtime"
+if cached_tag_fresh "$tmpcache/fresh.bin"; then fail "expired tag re-checks release API"; else pass "expired tag re-checks release API"; fi
+rm -f "$tmpcache/fresh.bin.tagtime"
+if cached_tag_fresh "$tmpcache/fresh.bin"; then fail "missing tagtime re-checks release API"; else pass "missing tagtime re-checks release API"; fi
+if grep -q 'User-Agent: deromine' mine.sh; then pass "GitHub API calls identify deromine (User-Agent)"; else fail "GitHub API calls identify deromine (User-Agent)"; fi
+if grep -q '\.tagtime' mine.sh; then pass "fetch records tag fetch time (.tagtime)"; else fail "fetch records tag fetch time (.tagtime)"; fi
+# resolve_release: while the tag is fresh the release API must be SKIPPED;
+# once expired it must be called; when the API is unreachable the cached tag
+# is used instead of failing. Extracts the REAL resolve_release, stubbing
+# only the network boundary (resolve_for_host) and integrity check.
+eval "$(sed -n '/^resolve_release()/,/^}/p' mine.sh)"
+OS=linux
+TAG_CACHE_TTL=21600
+DRY_RUN=false
+C_HDR=''; C_DIM=''
+REPO=some/repo
+BINARY_PATH="$tmpcache/fresh.bin"
+printf 'v0.3.0\n' > "$tmpcache/fresh.bin.tag"
+printf '%s\n' "$(date +%s)" > "$tmpcache/fresh.bin.tagtime"
+call_log=""
+resolve_for_host() { call_log="CALLED"; }
+binary_integrity_ok() { return 0; }
+TAG=""
+resolve_release >/dev/null 2>&1
+if [ "$call_log" = "" ] && [ "$TAG" = "v0.3.0" ]; then
+    pass "resolve_release skips the API while the tag is fresh"
+else
+    fail "resolve_release skips the API while the tag is fresh (called=[$call_log] tag=$TAG)"
+fi
+printf '%s\n' "$(( $(date +%s) - 999999 ))" > "$tmpcache/fresh.bin.tagtime"
+call_log=""
+resolve_release >/dev/null 2>&1
+if [ "$call_log" = "CALLED" ]; then
+    pass "resolve_release calls the API once the tag expires"
+else
+    fail "resolve_release calls the API once the tag expires (called=[$call_log])"
+fi
+date +%s > "$tmpcache/fresh.bin.tagtime"
+call_log=""
+resolve_for_host() { return 1; }
+resolve_release >/dev/null 2>&1
+if [ "$TAG" = "v0.3.0" ]; then
+    pass "API unreachable falls back to the cached tag"
+else
+    fail "API unreachable falls back to the cached tag (tag=$TAG)"
+fi
+rm -f "$tmpcache/fresh.bin.tag"
+if resolve_release >/dev/null 2>&1; then
+    fail "API unreachable with no cached tag fails"
+else
+    pass "API unreachable with no cached tag fails"
+fi
+unset -f cached_tag_fresh resolve_release resolve_for_host binary_integrity_ok
 rm -rf "$tmpcache"
 
 # 5e. Lifted binaries keep their dependencies. Windows releases ship DLLs

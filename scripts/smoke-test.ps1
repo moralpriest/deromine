@@ -466,6 +466,23 @@ try {
     [System.IO.File]::WriteAllBytes($corrupt, $badBuf)
     Set-Content -LiteralPath "$corrupt.tag" -Value 'v0.3.0' -NoNewline
     Assert-True '  corrupt binary forces re-download' (-not (Test-CachedBinaryUsable $corrupt 'v0.3.0' 'linux'))
+    # Release-tag cache: while the recorded tag is fresh the release API is
+    # skipped entirely (GitHub/GitLab rate-limit unauthenticated API calls).
+    $fresh = Join-Path $tmpCache 'fresh.bin'
+    [System.IO.File]::WriteAllBytes($fresh, $goodBuf)
+    Set-Content -LiteralPath "$fresh.tag" -Value 'v0.3.0' -NoNewline
+    Set-Content -LiteralPath "$fresh.tagtime" -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -NoNewline
+    Assert-True '  fresh tag skips release API' (Test-CachedTagFresh $fresh 'linux')
+    Set-Content -LiteralPath "$fresh.tagtime" -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 999999) -NoNewline
+    Assert-True '  expired tag re-checks release API' (-not (Test-CachedTagFresh $fresh 'linux'))
+    Remove-Item "$fresh.tagtime" -Force -ErrorAction SilentlyContinue
+    Assert-True '  missing tagtime re-checks release API' (-not (Test-CachedTagFresh $fresh 'linux'))
+    Set-Content -LiteralPath "$fresh.tagtime" -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -NoNewline
+    Assert-True '  corrupt binary inside TTL re-checks release API' (-not (Test-CachedTagFresh $bad 'linux'))
+    $dlTextTag = Get-Content (Join-Path $libDir 'download.ps1') -Raw
+    $mineTextTag = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  GitHub API calls identify deromine (User-Agent)' ($dlTextTag -match 'User-Agent' -and $dlTextTag -match 'DeromineVersion')
+    Assert-True '  fetch records tag fetch time (.tagtime)' ($dlTextTag -match 'tagtime' -and $mineTextTag -match 'tagtime')
     # Integrity failures must be actionable, not a dead-end error: on Windows a
     # binary that is MISSING right after extraction is almost always Defender
     # quarantining it (false positive for closed-source miners); a present-but-
