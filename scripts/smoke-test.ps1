@@ -135,6 +135,36 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 3c. Space-separated flag values (--threads 28 ≡ --threads=28). Extracts the
+# REAL ConvertTo-NormalizedCliArgs from mine.ps1 and exercises both forms,
+# then runs the space form end-to-end through the real runner.
+Write-Host ''
+Write-Host '3c. Space-separated flag values:' -ForegroundColor Yellow
+try {
+    $minePsLines = Get-Content (Join-Path $projectDir 'mine.ps1')
+    $startIdx = ($minePsLines | Select-String '^function ConvertTo-NormalizedCliArgs').LineNumber
+    $endIdx = ($minePsLines | Select-String '^# end: ConvertTo-NormalizedCliArgs').LineNumber
+    if (-not $startIdx -or -not $endIdx) { throw 'ConvertTo-NormalizedCliArgs markers not found' }
+    $fnCode = ($minePsLines[($startIdx - 1)..($endIdx - 2)]) -join "`n"
+    Invoke-Expression $fnCode
+    $r = ConvertTo-NormalizedCliArgs @('--threads', '28')
+    Assert-True '  --threads 28 normalizes to --threads=28' (($r -join ' ') -eq '--threads=28')
+    $r = ConvertTo-NormalizedCliArgs @('--threads=28')
+    Assert-True '  --threads=28 passes through unchanged' (($r -join ' ') -eq '--threads=28')
+    $r = ConvertTo-NormalizedCliArgs @('--miner', 'c', '--threads=4', '--dry-run')
+    Assert-True '  mixed space/equals forms normalize' (($r -join ' ') -eq '--miner=c --threads=4 --dry-run')
+    $r = ConvertTo-NormalizedCliArgs @('--daemon', 'http://node.example.org:10100', '--max-restart', '3')
+    Assert-True '  --daemon <url> space form keeps URL intact' (($r -join ' ') -eq '--daemon=http://node.example.org:10100 --max-restart=3')
+    $r = ConvertTo-NormalizedCliArgs @('--wallet-address', 'deroi1abc', '--miner-type', 'rust')
+    Assert-True '  long-alias flags (space) normalize' (($r -join ' ') -eq '--wallet-address=deroi1abc --miner-type=rust')
+    # End-to-end: --miner list (space) exits 0 through the real runner.
+    & pwsh -NoProfile -File (Join-Path $projectDir 'mine.ps1') --miner list *> $null
+    Assert-True '  mine.ps1 --miner list (space) exits 0' ($LASTEXITCODE -eq 0)
+} catch {
+    Assert-True '  space-separated flag values work' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+}
+
 # 4. Platform detection
 Write-Host ''
 Write-Host '4. Platform detection:' -ForegroundColor Yellow

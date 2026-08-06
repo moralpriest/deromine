@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$script:DeromineVersion = '1.1.0'
+$script:DeromineVersion = '1.1.1'
 
 # ── Load helpers (dot-source .ps1, not .psm1, to avoid scope/export issues) ──
 $projectDir = $PSScriptRoot
@@ -50,7 +50,35 @@ function Join-DaemonValue {
     return $val
 }
 
-$params = $args
+# Accept values both as --flag=value and --flag value: normalize the space
+# form into --flag=value so the `=*` switch cases below handle both styles
+# identically. `pwsh -File` delivers a space-separated value as one intact
+# token; daemon URLs then fall through to Join-DaemonValue, which reassembles
+# any Windows-style splits (--daemon=host + port).
+function ConvertTo-NormalizedCliArgs {
+    param([string[]]$RawArgs)
+    $valueFlags = @('--daemon', '--daemon-url', '--wallet', '--wallet-address', '--miner', '--miner-type', '--threads', '--thread-count', '--max-restart', '--delay', '--bench-time', '--dev-fee', '--output-dir', '--config')
+    $normalized = [string[]]@()
+    for ($n = 0; $n -lt $RawArgs.Count; $n++) {
+        $p = [string]$RawArgs[$n]
+        if ($valueFlags -contains $p) {
+            if ($n + 1 -ge $RawArgs.Count) {
+                Write-Host "Missing value for $p" -ForegroundColor Red
+                exit 1
+            }
+            $normalized += "$p=$($RawArgs[$n + 1])"
+            $n++
+        } else {
+            $normalized += $p
+        }
+    }
+    # The comma wraps the array so a single-element result is NOT unrolled to
+    # a scalar string (which would make $params[0] index the first character).
+    return ,$normalized
+}
+# end: ConvertTo-NormalizedCliArgs
+
+$params = ConvertTo-NormalizedCliArgs $args
 for ($i = 0; $i -lt $params.Count; $i++) {
     if ($params[$i] -eq '-h' -or $params[$i] -eq '--help' -or $params[$i] -eq 'help' -or $params[$i] -eq '/?') {
         Show-Help

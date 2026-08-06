@@ -79,6 +79,9 @@ function Show-Help {
     Write-Banner
     Write-Host 'Usage: deromine [options]' -ForegroundColor White
     Write-Host ''
+    Write-Host 'Flag values accept both --flag=value and --flag value' -ForegroundColor Gray
+    Write-Host '(e.g. --threads=28 or --threads 28).' -ForegroundColor Gray
+    Write-Host ''
     Write-Host '  --version              Show version and exit' -ForegroundColor Gray
     Write-Host '  --reconfigure          Re-run setup: ask for wallet, node, threads again' -ForegroundColor Gray
     Write-Host '  --miner=<id>           Miner id, or "list" to show the catalog table' -ForegroundColor Gray
@@ -101,6 +104,7 @@ function Show-Help {
     Write-Host 'Examples:' -ForegroundColor White
     Write-Host '  deromine' -ForegroundColor Gray
     Write-Host '  deromine --miner=list' -ForegroundColor Gray
+    Write-Host '  deromine --miner c --threads 28' -ForegroundColor Gray
     Write-Host '  deromine --miner=tnn --dev-fee=1' -ForegroundColor Gray
     Write-Host '  deromine --miner=c --dry-run' -ForegroundColor Gray
     Write-Host ''

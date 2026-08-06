@@ -120,6 +120,63 @@ else
     fail "bash separates normal miner list from benchmark trust gate"
 fi
 
+# 4b. Space-separated flag values (--threads 28 ≡ --threads=28). Extracts the
+# REAL parse_cli_args from mine.sh so both forms and mixed styles are checked,
+# and runs the space form end-to-end through both launchers.
+echo ""
+echo "4b. Space-separated flag values:"
+if ./deromine --miner list >/dev/null 2>&1; then
+    pass "--miner list (space) exits 0 (launcher)"
+else
+    fail "--miner list (space) exits 0 (launcher)"
+fi
+if bash ./mine.sh --miner list >/dev/null 2>&1; then
+    pass "--miner list (space) exits 0 (bash runner)"
+else
+    fail "--miner list (space) exits 0 (bash runner)"
+fi
+eval "$(sed -n '/^parse_cli_args()/,/^}/p' mine.sh)"
+cli_reset() {
+    THREAD_COUNT=0; DAEMON_URL=""; DAEMON_FLAG=0; MINER_ID=""; WALLET_ADDR=""
+    MAX_RESTART=0; RESTART_DELAY=0; BENCH_TIME=0; DEV_FEE_OVERRIDE=""
+    BIN_DIR=""; CONFIG_FILE=""; DRY_RUN=false
+}
+cli_reset; parse_cli_args --threads 28
+if [ "$THREAD_COUNT" = "28" ]; then pass "--threads 28 parses to 28"; else fail "--threads 28 parses to 28 (got '$THREAD_COUNT')"; fi
+cli_reset; parse_cli_args --threads=28
+if [ "$THREAD_COUNT" = "28" ]; then pass "--threads=28 parses to 28"; else fail "--threads=28 parses to 28 (got '$THREAD_COUNT')"; fi
+cli_reset; parse_cli_args --miner c --threads 4 --dry-run
+if [ "$MINER_ID" = "c" ] && [ "$THREAD_COUNT" = "4" ] && [ "$DRY_RUN" = "true" ]; then
+    pass "mixed flags parse (--miner c --threads 4 --dry-run)"
+else
+    fail "mixed flags parse (miner='$MINER_ID' threads='$THREAD_COUNT' dry=$DRY_RUN)"
+fi
+cli_reset; parse_cli_args --daemon dero.rabidmining.com:10100
+if [ "$DAEMON_URL" = "dero.rabidmining.com:10100" ] && [ "$DAEMON_FLAG" = "1" ]; then
+    pass "--daemon host:port (space) sets daemon flag"
+else
+    fail "--daemon host:port (space) (url='$DAEMON_URL' flag=$DAEMON_FLAG)"
+fi
+cli_reset; parse_cli_args --max-restart 3 --delay 5 --bench-time 60 --dev-fee 1.5
+if [ "$MAX_RESTART" = "3" ] && [ "$RESTART_DELAY" = "5" ] && [ "$BENCH_TIME" = "60" ] && [ "$DEV_FEE_OVERRIDE" = "1.5" ]; then
+    pass "numeric flags (space) parse"
+else
+    fail "numeric flags (space) parse (max=$MAX_RESTART delay=$RESTART_DELAY bench=$BENCH_TIME dev=$DEV_FEE_OVERRIDE)"
+fi
+cli_reset; parse_cli_args --output-dir /tmp/dero-out --config /tmp/dero-cfg.json
+if [ "$BIN_DIR" = "/tmp/dero-out" ] && [ "$CONFIG_FILE" = "/tmp/dero-cfg.json" ]; then
+    pass "path flags (space) parse"
+else
+    fail "path flags (space) parse (out='$BIN_DIR' cfg='$CONFIG_FILE')"
+fi
+cli_reset; parse_cli_args --wallet deroi1abc --miner=rust
+if [ "$WALLET_ADDR" = "deroi1abc" ] && [ "$MINER_ID" = "rust" ]; then
+    pass "mixed space/equals forms parse"
+else
+    fail "mixed space/equals forms parse (wallet='$WALLET_ADDR' miner='$MINER_ID')"
+fi
+unset -f parse_cli_args cli_reset
+
 # 5. All catalog ids resolve a binary name for the current OS/arch
 echo ""
 echo "5. Binary names:"

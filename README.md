@@ -192,6 +192,7 @@ still get a working (if simpler) launcher. Both paths share the same
 deromine                  # interactive menu (from anywhere)
 deromine --miner=list     # show catalog table
 deromine --miner=c        # start a specific miner
+deromine --miner c --threads 28   # same as --miner=c --threads=28 (both forms work)
 deromine --miner=tnn --dev-fee=1
 deromine --help           # show usage (also -h, /?, help)
 ```
@@ -214,6 +215,9 @@ node or pool (e.g. `my.node` or `my.node:10100`; the port defaults to 10100),
 or `q` to quit.
 
 ### CLI Parameters (PowerShell)
+
+Values can be given in either form — `--threads=28` or `--threads 28` — and
+both styles can be mixed on one command line.
 
 | Flag | Description |
 |------|-------------|
@@ -238,12 +242,16 @@ or `q` to quit.
 
 ```powershell
 pwsh ./mine.ps1 --miner=c --wallet=deroi1... --daemon-url=http://node.derofoundation.org:10100 --threads=4
-pwsh ./mine.ps1 --miner=list
+pwsh ./mine.ps1 --miner list     # space-separated value (same as --miner=list)
+pwsh ./mine.ps1 --miner=c --threads 28
 pwsh ./mine.ps1 --dry-run
 pwsh ./mine.ps1 --miner=tnn --dev-fee=1
 ```
 
 ### CLI Parameters (bash / Termux)
+
+Values can be given in either form — `--threads=28` or `--threads 28` — and
+both styles can be mixed on one command line.
 
 | Flag | Description |
 |------|-------------|
@@ -263,7 +271,8 @@ pwsh ./mine.ps1 --miner=tnn --dev-fee=1
 
 ```bash
 bash ./mine.sh --miner=c --wallet=deroi1...
-bash ./mine.sh --miner=list
+bash ./mine.sh --miner list     # space-separated value (same as --miner=list)
+bash ./mine.sh --miner=c --threads 28
 bash ./mine.sh --miner=tnn --dev-fee=1
 ```
 

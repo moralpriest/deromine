@@ -31,6 +31,9 @@ show_help() {
 Usage: deromine [options]
   cross-platform DERO miner launcher
 
+  Flag values accept both --flag=value and --flag value
+  (e.g. --threads=28 or --threads 28).
+
   --version              Show version and exit
   --reconfigure          Re-run setup: ask for wallet, node, threads again
   --miner=<id>           Miner id, or "list" to show the catalog table
@@ -53,35 +56,57 @@ Usage: deromine [options]
 Examples:
   deromine
   deromine --miner=list
+  deromine --miner c --threads 28
   deromine --miner=tnn --dev-fee=1
   deromine --miner=c --dry-run
 EOF
 }
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --daemon=*) DAEMON_URL="${1#*=}"; DAEMON_FLAG=1; shift ;;
-        --wallet=*) WALLET_ADDR="${1#*=}"; shift ;;
-        --miner=*)  MINER_ID="${1#*=}"; shift ;;
-        --threads=*) THREAD_COUNT="${1#*=}"; shift ;;
-        --dry-run)  DRY_RUN=true; shift ;;
-        --list)     MINER_ID="list"; shift ;;
-        --auto-restart) AUTO_RESTART=true; shift ;;
-        --max-restart=*) MAX_RESTART="${1#*=}"; shift ;;
-        --delay=*) RESTART_DELAY="${1#*=}"; shift ;;
-        --benchmark) BENCH_MODE=true; shift ;;
-        --include-closed-source) INCLUDE_CLOSED_SOURCE=true; shift ;;
-        --yes) ASSUME_YES=true; shift ;;
-        --bench-time=*) BENCH_TIME="${1#*=}"; shift ;;
-        --output-dir=*) BIN_DIR="${1#*=}"; shift ;;
-        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
-        --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
-        -h|--help|help|/\?) show_help; exit 0 ;;
-        --version) echo "deromine 1.1.0"; exit 0 ;;
-        --reconfigure) RECONFIGURE=true; shift ;;
-        *) echo "Unknown: $1"; exit 1 ;;
-    esac
-done
+# Accept values both as --flag=value and --flag value. The first pass merges
+# the space form into --flag=value so the second pass handles both styles
+# identically (unit-tested in scripts/smoke-test.sh).
+parse_cli_args() {
+    local -a norm=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --daemon|--wallet|--miner|--threads|--max-restart|--delay|--bench-time|--output-dir|--config|--dev-fee)
+                if [ $# -lt 2 ]; then
+                    echo "${C_ERR:-}[x] Missing value for $1${C_RESET:-}" >&2
+                    exit 1
+                fi
+                norm+=("$1=$2")
+                shift 2
+                ;;
+            *) norm+=("$1"); shift ;;
+        esac
+    done
+    set -- "${norm[@]}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --daemon=*) DAEMON_URL="${1#*=}"; DAEMON_FLAG=1; shift ;;
+            --wallet=*) WALLET_ADDR="${1#*=}"; shift ;;
+            --miner=*)  MINER_ID="${1#*=}"; shift ;;
+            --threads=*) THREAD_COUNT="${1#*=}"; shift ;;
+            --dry-run)  DRY_RUN=true; shift ;;
+            --list)     MINER_ID="list"; shift ;;
+            --auto-restart) AUTO_RESTART=true; shift ;;
+            --max-restart=*) MAX_RESTART="${1#*=}"; shift ;;
+            --delay=*) RESTART_DELAY="${1#*=}"; shift ;;
+            --benchmark) BENCH_MODE=true; shift ;;
+            --include-closed-source) INCLUDE_CLOSED_SOURCE=true; shift ;;
+            --yes) ASSUME_YES=true; shift ;;
+            --bench-time=*) BENCH_TIME="${1#*=}"; shift ;;
+            --output-dir=*) BIN_DIR="${1#*=}"; shift ;;
+            --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+            --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
+            -h|--help|help|/\?) show_help; exit 0 ;;
+            --version) echo "deromine 1.1.1"; exit 0 ;;
+            --reconfigure) RECONFIGURE=true; shift ;;
+            *) echo "Unknown: $1"; exit 1 ;;
+        esac
+    done
+}
+parse_cli_args "$@"
 
 # ── Dev fee override: --dev-fee flag wins over config.json ──
 if [ -z "$DEV_FEE_OVERRIDE" ] && [ -f "$CONFIG_FILE" ]; then
