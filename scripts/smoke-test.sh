@@ -165,6 +165,44 @@ agot=$(echo "$der_he" | jq -r --arg os "linux" --arg arch "aarch64" '
     // ""')
 if [ "$agot" = "$awant" ]; then pass "derohe linux/aarch64 archive name -> $agot"; else fail "derohe linux/aarch64 archive name -> $agot (want $awant)"; fi
 
+# 5b2. DeroLuna/TNN per-arch binary names. Regression: their arm64 builds
+# extract under a DIFFERENT name than the desktop build (deroluna's android
+# archive ships deroluna-miner-aarch64, TNN's arm64 archive ships
+# tnn-miner-cpu), which made "Binary not found after extraction" fail on
+# Termux. Replicates get_binary_name + get_archive_binary_name from mine.sh.
+echo ""
+echo "5b2. Per-arch binary names (DeroLuna/TNN):"
+while IFS= read -r combo; do
+    mid=${combo%% *}; rest=${combo#* }
+    o=${rest%% *}; rest=${rest#* }
+    a=${rest%% *}; want=${rest#* }
+    m=$(jq -c --arg id "$mid" '.miners[] | select(.id == $id)' miners.json)
+    got=$(echo "$m" | jq -r --arg os "$o" --arg arch "$a" '
+        first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // .binary
+        // ""')
+    agot=$(echo "$m" | jq -r --arg os "$o" --arg arch "$a" '
+        first(.assets[] | select(.os == $os and .arch == $arch and ((.binary_archive // "") != ""))).binary_archive
+        // first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // first(.assets[] | select(.os == $os and ((.binary_archive // "") != ""))).binary_archive
+        // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // .binary_archive
+        // .binary
+        // ""')
+    if [ "$o" = "windows" ] && [ -n "$got" ] && [[ "$got" != *.exe ]]; then got="${got}.exe"; agot="${agot}.exe"; fi
+    if [ "$got" = "$want" ]; then pass "$mid $o/$a binary -> $got"; else fail "$mid $o/$a binary -> $got (want $want)"; fi
+    if [ "$agot" = "$want" ]; then pass "$mid $o/$a archive binary -> $agot"; else fail "$mid $o/$a archive binary -> $agot (want $want)"; fi
+done <<'EOF'
+deroluna linux amd64 deroluna-miner
+deroluna linux aarch64 deroluna-miner-aarch64
+deroluna windows amd64 deroluna-miner.exe
+tnn linux amd64 tnn-miner
+tnn linux aarch64 tnn-miner-cpu
+tnn macos aarch64 tnn-miner
+tnn windows amd64 tnn-miner.exe
+EOF
+
 # 5c. Termux exclusions (derohe must be hidden on Android/Termux)
 echo ""
 echo "5c. Termux exclusions:"

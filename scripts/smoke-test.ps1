@@ -346,6 +346,26 @@ try {
     } else {
         Assert-True '  derohe found in catalog' $false
     }
+    # DeroLuna/TNN regression: their arm64 builds extract under a different
+    # name than the desktop build (android archive ships deroluna-miner-aarch64,
+    # arm64 archive ships tnn-miner-cpu) — used to fail with 'Binary not found
+    # after extraction' on Termux. Per-asset binary overrides fix it.
+    $derolunaT = Get-MinerByMinerId $catalog 'deroluna'
+    $tnnT = Get-MinerByMinerId $catalog 'tnn'
+    Assert-True '  deroluna found in catalog' ($null -ne $derolunaT)
+    Assert-True '  tnn found in catalog' ($null -ne $tnnT)
+    if ($derolunaT) {
+        Assert-True '  deroluna linux/aarch64 -> deroluna-miner-aarch64' ((Get-MinerBinaryName $derolunaT 'linux' 'aarch64') -eq 'deroluna-miner-aarch64')
+        Assert-True '  deroluna linux/aarch64 archive -> deroluna-miner-aarch64' ((Get-MinerArchiveBinaryName $derolunaT 'linux' 'aarch64') -eq 'deroluna-miner-aarch64')
+        Assert-True '  deroluna linux/amd64 -> deroluna-miner' ((Get-MinerBinaryName $derolunaT 'linux' 'amd64') -eq 'deroluna-miner')
+        Assert-True '  deroluna windows/amd64 -> deroluna-miner.exe' ((Get-MinerBinaryName $derolunaT 'windows' 'amd64') -eq 'deroluna-miner.exe')
+    }
+    if ($tnnT) {
+        Assert-True '  tnn linux/aarch64 -> tnn-miner-cpu' ((Get-MinerBinaryName $tnnT 'linux' 'aarch64') -eq 'tnn-miner-cpu')
+        Assert-True '  tnn linux/aarch64 archive -> tnn-miner-cpu' ((Get-MinerArchiveBinaryName $tnnT 'linux' 'aarch64') -eq 'tnn-miner-cpu')
+        Assert-True '  tnn linux/amd64 -> tnn-miner' ((Get-MinerBinaryName $tnnT 'linux' 'amd64') -eq 'tnn-miner')
+        Assert-True '  tnn windows/amd64 -> tnn-miner.exe' ((Get-MinerBinaryName $tnnT 'windows' 'amd64') -eq 'tnn-miner.exe')
+    }
 } catch {
     Assert-True '  per-arch binary resolution works' $false
     Write-Host "    Error: $_" -ForegroundColor DarkRed

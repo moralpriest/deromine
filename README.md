@@ -317,12 +317,13 @@ deromine/
 
 Ordering is intentional: open-source 0%-fee miners first, then the official DeroHE
 miner, then closed-source / dev-fee miners at the bottom. Miners whose hardware
-requirements are not met (e.g. GPU miners without the right GPU) are hidden from
-the list on that host, as are miners marked `unsupported` for the platform — for
+requirements are not met (e.g. GPU miners without the right GPU) arehidden from the list on that host, as are miners marked `unsupported` for the platform — for
 example `derohe` and `zig` on Termux/Android, whose arm64 releases are broken
 there (derohe fails its own ELF self-check; zig's build dumps its usage screen
-instead of mining even with correct arguments). On Termux, use the Dirtybird
-`c`, `rust`, or `go` miners, which ship working Android arm64 builds.
+instead of mining even with correct arguments). On Termux, the Dirtybird
+`c`, `rust`, and `go` miners plus `deroluna` and `tnn` all ship working arm64
+builds (DeroLuna publishes a dedicated `_aarch64_android` build; TNN's arm64
+build is statically linked).
 
 ### List columns
 
@@ -443,12 +444,15 @@ benchmark/help surfaces.
 - **Binary not found after extraction**: The extracted archive may have a nested
   directory. The script attempts to lift nested binaries to the top-level
   `bin/<miner-id>/` folder.
-- **Binary not found after extraction (per-arch names, e.g. derohe on
-  Termux/Android)**: some releases name the binary per architecture — derohe
-  ships `dero-miner-linux-arm64` on aarch64 but `dero-miner-linux-amd64` on
-  amd64 (and `dero-miner-windows-amd64.exe` on Windows). These are handled
-  automatically via per-asset `binary` overrides in `miners.json`; re-run
-  `deromine` after updating.
+- **Binary not found after extraction (per-arch names, e.g. deroluna/TNN on
+  Termux/Android)**: some releases name the binary per architecture — DeroLuna's
+  Android build extracts as `deroluna-miner-aarch64` (vs `deroluna-miner` on
+  amd64), TNN's arm64 build extracts as `tnn-miner-cpu` (vs `tnn-miner` on
+  amd64), and derohe ships `dero-miner-linux-arm64` on aarch64 but
+  `dero-miner-linux-amd64` on amd64 (and `dero-miner-windows-amd64.exe` on
+  Windows). These are handled automatically via per-asset `binary` overrides in
+  `miners.json`; re-run `deromine` (or re-run the installer to update) after
+  updating.
 - **Permission denied on Linux/macOS**: The script runs `chmod +x` automatically.
   If it fails, run `chmod +x bin/c/dirtybird-c-miner` manually.
 - **GPU miner missing from list**: GPU miners are filtered by hardware detection

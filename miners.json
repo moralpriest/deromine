@@ -164,9 +164,9 @@
       "benchmark_policy": "opt-in",
       "type": "cpu",
       "assets": [
-        { "os": "linux",   "arch": "amd64",   "pattern": "deroluna-v*_linux_hiveos_mmpos.tar.gz" },
-        { "os": "linux",   "arch": "aarch64", "pattern": "deroluna-v*_aarch64_android.tar.gz" },
-        { "os": "windows", "arch": "amd64",   "pattern": "deroluna-v*_windows.zip" }
+        { "os": "linux",   "arch": "amd64",   "pattern": "deroluna-v*_linux_hiveos_mmpos.tar.gz", "binary": "deroluna-miner" },
+        { "os": "linux",   "arch": "aarch64", "pattern": "deroluna-v*_aarch64_android.tar.gz", "binary": "deroluna-miner-aarch64" },
+        { "os": "windows", "arch": "amd64",   "pattern": "deroluna-v*_windows.zip", "binary": "deroluna-miner" }
       ]
     },
     {
@@ -189,10 +189,10 @@
         "dev_fee": "--dev-fee"
       },
       "assets": [
-        { "os": "linux",   "arch": "amd64",   "pattern": "Tnn-miner-amd64-v*.tar.gz" },
-        { "os": "linux",   "arch": "aarch64", "pattern": "Tnn-miner-arm64-v*.tar.gz" },
-        { "os": "macos",   "arch": "aarch64", "pattern": "Tnn-miner-macos-arm64-v*.tar.gz" },
-        { "os": "windows", "arch": "amd64",   "pattern": "Tnn-miner-win64-v*.zip" }
+        { "os": "linux",   "arch": "amd64",   "pattern": "Tnn-miner-amd64-v*.tar.gz", "binary": "tnn-miner" },
+        { "os": "linux",   "arch": "aarch64", "pattern": "Tnn-miner-arm64-v*.tar.gz", "binary": "tnn-miner-cpu" },
+        { "os": "macos",   "arch": "aarch64", "pattern": "Tnn-miner-macos-arm64-v*.tar.gz", "binary": "tnn-miner" },
+        { "os": "windows", "arch": "amd64",   "pattern": "Tnn-miner-win64-v*.zip", "binary": "tnn-miner" }
       ]
     },
     {
