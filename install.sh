@@ -22,7 +22,10 @@ bin_home="${HOME}/.local/bin"
 install_dir="$data_home/deromine"
 
 is_termux=false
-if [ -n "${PREFIX:-}" ] && [ -d "$PREFIX/bin" ]; then
+# Same detection as mine.sh / platform.ps1: $PREFIX is set by Termux and
+# $PREFIX/bin is its always-on-PATH dir. Requiring 'com.termux' in the path
+# avoids false positives when an unrelated PREFIX is exported on desktop Linux.
+if [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ]; then
     is_termux=true
 fi
 
@@ -44,7 +47,10 @@ show_pwsh_install_guide() {
             echo "      Verify with: pwsh --version   (p-w-s-h)" >&2 ;;
         *)
             if $is_termux; then
-                echo "      pkg install -y powershell" >&2
+                echo "      PowerShell is NOT packaged for Termux. The bash fallback does" >&2
+                echo "      everything deromine needs; pwsh only unlocks the interactive menu." >&2
+                echo "      For the menu, run the official ARM build (works under proot-distro):" >&2
+                echo "      https://github.com/PowerShell/PowerShell/releases" >&2
             elif command -v apt-get >/dev/null 2>&1; then
                 echo "      Install PowerShell from the Microsoft apt repository:" >&2
                 echo "      https://learn.microsoft.com/powershell/scripting/install/install-ubuntu" >&2
@@ -59,6 +65,17 @@ show_pwsh_install_guide() {
 
 install_pwsh_if_missing() {
     command -v pwsh >/dev/null 2>&1 && return 0
+
+    if $is_termux; then
+        # PowerShell 7 is NOT packaged for Termux (no apt/brew/snap path).
+        # Don't prompt or attempt a doomed install; the bash fallback is the
+        # official, fully-functional interface on Android. (The guide below
+        # is printed by the caller.)
+        echo "  [!] PowerShell 7 not found (it is not packaged for Termux);" >&2
+        echo "      the bash fallback is fully functional — pwsh only adds a menu UI." >&2
+        return 1
+    fi
+
     [ "${DEROMINE_SKIP_PWSH:-0}" = "1" ] && {
         echo "  [!] Skipping automatic PowerShell 7 install (DEROMINE_SKIP_PWSH=1)." >&2
         return 1
@@ -82,9 +99,7 @@ install_pwsh_if_missing() {
     fi
 
     echo "  [*] PowerShell 7 (pwsh) is missing; attempting to install it..."
-    if $is_termux; then
-        pkg install -y powershell || return 1
-    elif [ "$(uname -s)" = "Darwin" ]; then
+    if [ "$(uname -s)" = "Darwin" ]; then
         brew_cmd="$(command -v brew 2>/dev/null || true)"
         if [ -z "$brew_cmd" ]; then
             for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
@@ -185,7 +200,31 @@ mkdir -p "$data_home" "$bin_home"
 
 if [ -d "$install_dir/.git" ]; then
     echo "[*] deromine already installed, updating..."
-    git -C "$install_dir" pull --ff-only origin "$BRANCH" || true
+    # Fast-forward pulls can fail when the local clone has diverged from
+    # upstream (rewritten history, stale shallow clone, local commits). User
+    # data (config.json, bin/) is untracked/gitignored, so adopting upstream
+    # exactly is safe when nothing TRACKED is at risk: the tree/index must be
+    # clean AND there must be no local-only commits — unless this is the
+    # shallow clone install.sh creates, where divergence means the remote tip
+    # was rewritten, not that the user committed locally.
+    if ! git -C "$install_dir" pull --ff-only origin "$BRANCH" 2>/dev/null; then
+        if git -C "$install_dir" diff --quiet \
+            && git -C "$install_dir" diff --cached --quiet \
+            && git -C "$install_dir" fetch origin "$BRANCH" 2>/dev/null; then
+            if [ "$(git -C "$install_dir" rev-parse --is-shallow-repository 2>/dev/null || echo false)" = "true" ] \
+                || [ "$(git -C "$install_dir" rev-list --count "origin/$BRANCH..HEAD" 2>/dev/null || echo 1)" -eq 0 ]; then
+                git -C "$install_dir" reset --hard "origin/$BRANCH" \
+                    && echo "  [*] Install repo had diverged from upstream; synced to latest $BRANCH" \
+                    || echo "  [x] Update failed: could not sync $install_dir to upstream." >&2
+            else
+                echo "  [x] Update skipped: $install_dir has local commits not present upstream." >&2
+                echo "      They are preserved. Push or back them up, then re-run the installer." >&2
+            fi
+        else
+            echo "  [x] Update skipped: $install_dir could not be updated cleanly." >&2
+            echo "      Local changes (if any) are preserved. Commit or stash them, then re-run." >&2
+        fi
+    fi
 else
     echo "[*] Cloning deromine into $install_dir ..."
     git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$install_dir"
@@ -235,6 +274,10 @@ fi
 echo ""
 if command -v pwsh >/dev/null 2>&1; then
     echo "  PowerShell 7 found — full interactive UI enabled."
+elif $is_termux; then
+    echo "  PowerShell 7 is not packaged for Termux — the bash fallback IS the"
+    echo "  official interface here. (pwsh ARM builds exist for proot-distro:"
+    echo "  https://github.com/PowerShell/PowerShell/releases)"
 else
     echo "  PowerShell 7 (pwsh) not found. The bash fallback still works,"
     echo "  but for the full interactive menu install PowerShell 7 first:"

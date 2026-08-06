@@ -64,6 +64,8 @@ fi
 echo ""
 echo "2d. PowerShell prerequisite handling:"
 if grep -q 'install_pwsh_if_missing' install.sh && grep -q 'DEROMINE_SKIP_PWSH' install.sh && grep -q 'DEROMINE_AUTO_INSTALL_PWSH' install.sh && grep -q '/dev/tty' install.sh && grep -q 'packages.microsoft.com/config/fedora' install.sh && grep -q 'brew install --cask powershell' install.sh; then pass "bash installer handles missing pwsh safely"; else fail "bash installer handles missing pwsh safely"; fi
+if grep -q 'not packaged for Termux' install.sh && grep -q 'com.termux' install.sh && ! grep -q 'pkg install.*powershell' install.sh; then pass "bash installer never attempts pwsh install on Termux"; else fail "bash installer never attempts pwsh install on Termux"; fi
+if grep -q 'reset --hard' install.sh && grep -q 'pull --ff-only' install.sh; then pass "installer recovers from diverged clone on update"; else fail "installer recovers from diverged clone on update"; fi
 if grep -q 'Install-PwshIfMissing' install.ps1 && grep -q 'Microsoft.PowerShell' install.ps1; then pass "PowerShell installer handles missing pwsh"; else fail "PowerShell installer handles missing pwsh"; fi
 
 echo ""

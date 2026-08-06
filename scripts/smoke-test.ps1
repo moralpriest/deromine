@@ -97,6 +97,8 @@ Write-Host '2d. PowerShell prerequisite handling:' -ForegroundColor Yellow
 $installShText = Get-Content (Join-Path $projectDir 'install.sh') -Raw
 $installPsText = Get-Content (Join-Path $projectDir 'install.ps1') -Raw
 Assert-True '  bash installer handles missing pwsh safely' ($installShText -match 'install_pwsh_if_missing' -and $installShText -match 'DEROMINE_SKIP_PWSH' -and $installShText -match 'DEROMINE_AUTO_INSTALL_PWSH' -and $installShText -match '/dev/tty' -and $installShText -match 'packages\.microsoft\.com/config/fedora' -and $installShText -match 'brew install --cask powershell')
+Assert-True '  bash installer never attempts pwsh install on Termux' ($installShText -match 'not packaged for Termux' -and $installShText -match 'com\.termux' -and $installShText -notmatch 'pkg install.*powershell')
+Assert-True '  bash installer recovers from a diverged clone on update' ($installShText -match 'pull --ff-only' -and $installShText -match 'reset --hard')
 Assert-True '  PowerShell installer handles missing pwsh safely' ($installPsText -match 'Install-PwshIfMissing' -and $installPsText -match 'Microsoft.PowerShell' -and $installPsText -match 'DEROMINE_AUTO_INSTALL_PWSH')
 
 # 3. Helper modules load without errors
