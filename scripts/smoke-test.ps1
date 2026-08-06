@@ -389,6 +389,12 @@ try {
     Assert-True '  deroluna hidden on Termux' (-not (Test-MinerHardwareSupported $derolunaT))
     Assert-True '  tnn hidden on Termux' (-not (Test-MinerHardwareSupported $tnnT))
     Assert-True '  rust still supported on Termux' (Test-MinerHardwareSupported $rustT)
+    # Direct-run (--miner=<id>) must refuse unsupported miners BEFORE any
+    # resolve/download, not just hide them from the list.
+    $mineShGate = Get-Content (Join-Path $projectDir 'mine.sh') -Raw
+    Assert-True '  bash direct-run refuses unsupported miners before download' ($mineShGate -match 'is not supported on this host' -and $mineShGate -match 'miner_hardware_ok "\$MINER_JSON"' -and $mineShGate -match 'is not supported on Termux/Android')
+    $minePsGate = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  powershell direct-run refuses unsupported miners before download' ($minePsGate -match 'is not supported on' -and $minePsGate -match 'Test-MinerHardwareSupported \$miner' -and $minePsGate -match 'nothing was downloaded')
 } finally {
     $env:PREFIX = $savedPrefix
     Remove-Item (Join-Path ([System.IO.Path]::GetTempPath()) 'deromine-com.termux-*') -Recurse -Force -ErrorAction SilentlyContinue

@@ -77,7 +77,7 @@ while [[ $# -gt 0 ]]; do
         --config=*) CONFIG_FILE="${1#*=}"; shift ;;
         --dev-fee=*) DEV_FEE_OVERRIDE="${1#*=}"; shift ;;
         -h|--help|help|/\?) show_help; exit 0 ;;
-        --version) echo "deromine 1.0.0"; exit 0 ;;
+        --version) echo "deromine 1.1.0"; exit 0 ;;
         --reconfigure) RECONFIGURE=true; shift ;;
         *) echo "Unknown: $1"; exit 1 ;;
     esac
@@ -1142,7 +1142,13 @@ if [ -z "$MINER_JSON" ]; then
     exit 1
 fi
 if ! miner_hardware_ok "$MINER_JSON"; then
-    echo "${C_ERR}[x] Miner '$MINER_ID' is not supported on this host${C_RESET}"
+    # Refuse BEFORE any resolve/download (an unsupported miner must never be
+    # fetched, even when force-run with --miner=<id>).
+    if [ "$IS_TERMUX" -eq 1 ]; then
+        echo "${C_ERR}[x] Miner '$MINER_ID' is not supported on Termux/Android; nothing was downloaded.${C_RESET}"
+    else
+        echo "${C_ERR}[x] Miner '$MINER_ID' is not supported on this host${C_RESET}"
+    fi
     exit 1
 fi
 

@@ -247,6 +247,13 @@ if PREFIX="$fake_prefix" bash -c '
 else
     pass "rust not excluded on Termux"
 fi
+# Direct-run (--miner=<id>) must refuse unsupported miners BEFORE any
+# resolve/download, not just hide them from the list.
+if grep -q 'is not supported on this host' mine.sh && grep -q 'miner_hardware_ok "$MINER_JSON"' mine.sh && grep -q 'is not supported on Termux/Android' mine.sh; then
+    pass "bash direct-run refuses unsupported miners before download"
+else
+    fail "bash direct-run refuses unsupported miners before download"
+fi
 rm -rf "$fake_base"
 
 # 5d. Cache integrity + version-aware cache. Extracts the REAL helper functions

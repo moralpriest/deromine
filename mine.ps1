@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$script:DeromineVersion = '1.0.0'
+$script:DeromineVersion = '1.1.0'
 
 # ── Load helpers (dot-source .ps1, not .psm1, to avoid scope/export issues) ──
 $projectDir = $PSScriptRoot
@@ -235,8 +235,11 @@ else {
         Write-Error "Miner '$minerType' not found in catalog"
         exit 1
     }
+    # Refuse BEFORE any resolve/download (an unsupported miner must never be
+    # fetched, even when force-run with --miner=<id>).
     if (-not (Test-MinerHardwareSupported $miner)) {
-        Write-Error "Miner '$minerType' is not supported on this host"
+        $why = if (Test-IsTermux) { 'Termux/Android' } else { 'this host' }
+        Write-Error "Miner '$minerType' is not supported on $why; nothing was downloaded"
         exit 1
     }
 }
