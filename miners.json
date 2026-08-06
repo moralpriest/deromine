@@ -162,6 +162,7 @@
       "risk": "high",
       "risk_note": "Closed source",
       "benchmark_policy": "opt-in",
+      "unsupported": ["termux"],
       "type": "cpu",
       "assets": [
         { "os": "linux",   "arch": "amd64",   "pattern": "deroluna-v*_linux_hiveos_mmpos.tar.gz", "binary": "deroluna-miner" },
@@ -179,6 +180,7 @@
       "risk": "medium",
       "risk_note": "Closed DLLs",
       "benchmark_policy": "opt-in",
+      "unsupported": ["termux"],
       "type": "both",
       "flags": {
         "coin": "--DERO",

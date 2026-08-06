@@ -227,6 +227,17 @@ if PREFIX="$fake_prefix" bash -c '
 else
     fail "zig excluded on Termux"
 fi
+# ...and DeroLuna and TNN (closed-source, do not run on Android)...
+for mid in deroluna tnn; do
+    if PREFIX="$fake_prefix" bash -c '
+        [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ] \
+            && jq -e ".miners[] | select(.id == \"'"$mid"'\") | .unsupported | index(\"termux\")" miners.json >/dev/null 2>&1
+    '; then
+        pass "$mid excluded on Termux"
+    else
+        fail "$mid excluded on Termux"
+    fi
+done
 # ...while dirtybird rust stays available.
 if PREFIX="$fake_prefix" bash -c '
     [ -n "${PREFIX:-}" ] && [[ "$PREFIX" == *com.termux* ]] && [ -d "$PREFIX/bin" ] \

@@ -311,19 +311,17 @@ deromine/
 | cuda | Dirtybird CUDA | dirtybird-openastronv_v3 | gpu | 0% | Open source | NVIDIA GPU required |
 | go-gpu | Dirtybird Go GPU | dirtybird-go-gpu-miner | gpu | 0% | Open source | Any Vulkan GPU |
 | derohe | DERO HE Default Miner | dero-miner-linux-amd64 | cpu | 0% | Official | Official default miner; not on Termux/Android |
-| deroluna | DeroLuna | deroluna-miner | cpu | 10% | Closed source | GitLab releases |
-| tnn | TNN | tnn-miner | both | 2.5% | Closed DLLs | CPU+GPU, dev fee configurable via `--dev-fee` |
+| deroluna | DeroLuna | deroluna-miner | cpu | 10% | Closed source | GitLab releases; not on Termux/Android |
+| tnn | TNN | tnn-miner | both | 2.5% | Closed DLLs | CPU+GPU, dev fee configurable via `--dev-fee`; not on Termux/Android |
 | astronv | Astronv | astronv | gpu | 4.9% | Closed source | NVIDIA GPU, Linux only |
 
 Ordering is intentional: open-source 0%-fee miners first, then the official DeroHE
 miner, then closed-source / dev-fee miners at the bottom. Miners whose hardware
 requirements are not met (e.g. GPU miners without the right GPU) arehidden from the list on that host, as are miners marked `unsupported` for the platform — for
-example `derohe` and `zig` on Termux/Android, whose arm64 releases are broken
-there (derohe fails its own ELF self-check; zig's build dumps its usage screen
-instead of mining even with correct arguments). On Termux, the Dirtybird
-`c`, `rust`, and `go` miners plus `deroluna` and `tnn` all ship working arm64
-builds (DeroLuna publishes a dedicated `_aarch64_android` build; TNN's arm64
-build is statically linked).
+example `derohe`, `zig`, `deroluna`, and `tnn` on Termux/Android (derohe fails
+its own ELF self-check; zig's build dumps its usage screen instead of mining;
+DeroLuna and TNN do not run on Android). On Termux, use the Dirtybird `c`,
+`rust`, or `go` miners, which ship working Android arm64 builds.
 
 ### List columns
 
@@ -494,6 +492,11 @@ benchmark/help surfaces.
   with correct `-d/-w/-t` flags, while the same binary mines fine on Linux and
   the Rust miner works on the same device. It is therefore marked `unsupported`
   on Termux and hidden. Use `deromine --miner=rust` (or `go`/`c`) on Android.
+- **deroluna and tnn are missing from the list on Termux/Android**: both are
+  marked `unsupported` on Termux — they do not run on Android, so deromine
+  hides them there (same as derohe and zig). Use the Dirtybird miners instead:
+  `deromine --miner=rust` (or `c`/`go`) — they ship working Android arm64
+  builds.
 - **A miner prints its usage/help screen instead of mining** (e.g. the zig
   miner dumping `Usage: zig-miner ...` right after the `[*] Command:` line):
   this can happen when the cached binary in `bin/<miner-id>/` is stale or

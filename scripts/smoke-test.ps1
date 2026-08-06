@@ -384,6 +384,10 @@ try {
     $rustT = Get-MinerByMinerId $catalog 'rust'
     Assert-True '  derohe hidden on Termux' (-not (Test-MinerHardwareSupported $deroheT))
     Assert-True '  zig hidden on Termux (arm64 build broken on Android)' (-not (Test-MinerHardwareSupported $zigT))
+    $derolunaT = Get-MinerByMinerId $catalog 'deroluna'
+    $tnnT = Get-MinerByMinerId $catalog 'tnn'
+    Assert-True '  deroluna hidden on Termux' (-not (Test-MinerHardwareSupported $derolunaT))
+    Assert-True '  tnn hidden on Termux' (-not (Test-MinerHardwareSupported $tnnT))
     Assert-True '  rust still supported on Termux' (Test-MinerHardwareSupported $rustT)
 } finally {
     $env:PREFIX = $savedPrefix
