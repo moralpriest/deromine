@@ -717,6 +717,12 @@ draw_miner_table() {
             medium) rcol="$C_RISK_MED" ;;
             *)      rcol="$C_RISK_LO" ;;
         esac
+        # "Closed source" is always red regardless of the coarse risk level
+        # (matches the README legend; e.g. astrox is 'medium' but ships no
+        # source code, so it must not look as safe as 'Closed DLLs').
+        case "${rnotes[$((i-1))]}" in
+            *"Closed source"*) rcol="$C_RISK_HI" ;;
+        esac
         status=$(printf '%-*s' "$sw" "$BULLET AVAIL")
         mid=$(echo "$m" | jq -r '.id // ""')
         if [ -n "$mid" ] && [ -x "$BIN_DIR/$mid/$(get_binary_name "$m")" ]; then

@@ -191,6 +191,10 @@ function Write-MinerTable {
             'medium' { 'Yellow' }
             default  { 'Green' }
         }
+        # "Closed source" is always red regardless of the coarse risk level
+        # (matches the README legend; e.g. astrox is 'medium' but ships no
+        # source code, so it must not look as safe as 'Closed DLLs').
+        if ($riskNote -eq 'Closed source') { $riskColor = 'Red' }
         $feeValue = [string]$m.fee
         if ([string]::IsNullOrEmpty($feeValue)) { $feeValue = '0%' }
         if ($DevFee -and $m.PSObject.Properties['flags'] -and $m.flags.PSObject.Properties['dev_fee']) { $feeValue = "$DevFee%" }
