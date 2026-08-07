@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$script:DeromineVersion = '1.1.2'
+$script:DeromineVersion = '1.1.3'
 
 # ── Load helpers (dot-source .ps1, not .psm1, to avoid scope/export issues) ──
 $projectDir = $PSScriptRoot
