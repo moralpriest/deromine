@@ -396,17 +396,19 @@ try {
         Assert-True '  tnn linux/amd64 -> tnn-miner' ((Get-MinerBinaryName $tnnT 'linux' 'amd64') -eq 'tnn-miner')
         Assert-True '  tnn windows/amd64 -> tnn-miner.exe' ((Get-MinerBinaryName $tnnT 'windows' 'amd64') -eq 'tnn-miner.exe')
     }
-    # AstroX (dero-astrox-miner) is Windows x64 only: the catalog must expose
-    # an asset on windows/amd64 and NO asset on any other platform, so it is
-    # displayed solely on Windows (both the PS and bash paths filter the list
-    # by per-OS/arch assets).
+    # AstroX (dero-astrox-miner) ships Linux amd64 and Windows amd64 builds:
+    # the catalog must expose an asset on linux/amd64 and windows/amd64 and NO
+    # asset on any other platform, so it is displayed only on those two
+    # (both the PS and bash paths filter the list by per-OS/arch assets).
     $astroxT = Get-MinerByMinerId $catalog 'astrox'
     Assert-True '  astrox found in catalog' ($null -ne $astroxT)
     if ($astroxT) {
         Assert-True '  astrox windows/amd64 -> dero-astrox-miner.exe' ((Get-MinerBinaryName $astroxT 'windows' 'amd64') -eq 'dero-astrox-miner.exe')
         Assert-True '  astrox windows/amd64 asset resolves' ($null -ne (Get-MinerAsset $astroxT 'windows' 'amd64'))
-        Assert-True '  astrox has no linux asset (Windows-only)' ($null -eq (Get-MinerAsset $astroxT 'linux' 'amd64'))
-        Assert-True '  astrox has no macos asset (Windows-only)' ($null -eq (Get-MinerAsset $astroxT 'macos' 'aarch64'))
+        Assert-True '  astrox linux/amd64 -> dero-astrox-miner' ((Get-MinerBinaryName $astroxT 'linux' 'amd64') -eq 'dero-astrox-miner')
+        Assert-True '  astrox linux/amd64 archive -> dero-astrox-miner' ((Get-MinerArchiveBinaryName $astroxT 'linux' 'amd64') -eq 'dero-astrox-miner')
+        Assert-True '  astrox linux/amd64 asset resolves' ($null -ne (Get-MinerAsset $astroxT 'linux' 'amd64'))
+        Assert-True '  astrox has no macos asset' ($null -eq (Get-MinerAsset $astroxT 'macos' 'aarch64'))
     }
 } catch {
     Assert-True '  per-arch binary resolution works' $false

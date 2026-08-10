@@ -8,7 +8,7 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 DEFAULT_DAEMON_PORT=10100
 DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
-DEROMINE_VERSION="1.1.3"
+DEROMINE_VERSION="1.1.4"
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"

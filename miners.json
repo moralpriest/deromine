@@ -203,7 +203,7 @@
       "binary": "dero-astrox-miner",
       "binary_archive": "dero-astrox-miner",
       "repo": "palperro3942/dero-astrox-miner",
-      "fee": "2%",
+      "fee": "3%",
       "risk": "medium",
       "risk_note": "Closed source",
       "benchmark_policy": "disabled",
@@ -214,6 +214,7 @@
         "threads": "-t"
       },
       "assets": [
+        { "os": "linux",   "arch": "amd64", "pattern": "dero-astrox-miner-linux-amd64-*.zip" },
         { "os": "windows", "arch": "amd64", "pattern": "dero-astrox-miner-windows-amd64-*.zip" }
       ]
     },

@@ -324,7 +324,7 @@ deromine/
 | derohe | DERO HE Default Miner | dero-miner-linux-amd64 | cpu | 0% | Official | Official default miner; not on Termux/Android |
 | deroluna | DeroLuna | deroluna-miner | cpu | 10% | Closed source | GitLab releases; not on Termux/Android |
 | tnn | TNN | tnn-miner | both | 2.5% | Closed DLLs | CPU+GPU, dev fee configurable via `--dev-fee`; not on Termux/Android |
-| astrox | DERO AstroX | dero-astrox-miner | cpu | 2% | Closed source | Fast AstroBWTv3 CPU miner; fixed 2% dev fee; Windows x64 only |
+| astrox | DERO AstroX | dero-astrox-miner | cpu | 3% | Closed source | Fast AstroBWTv3 CPU miner; fixed 3% dev fee; Linux/Windows amd64 |
 | astronv | Astronv | astronv | gpu | 4.9% | Closed source | NVIDIA GPU, Linux only |
 
 Ordering is intentional: open-source 0%-fee miners first, then the official DeroHE
@@ -333,9 +333,9 @@ requirements are not met (e.g. GPU miners without the right GPU) arehidden from 
 example `derohe`, `zig`, `deroluna`, and `tnn` on Termux/Android (derohe fails
 its own ELF self-check; zig's build dumps its usage screen instead of mining;
 DeroLuna and TNN do not run on Android). Miners with no release for the current
-OS are hidden too — e.g. `astrox` ships Windows x64 builds only, so it appears
-solely on Windows. On Termux, use the Dirtybird `c`, `rust`, or `go` miners,
-which ship working Android arm64 builds.
+OS are hidden too — e.g. `astronv` ships Linux builds only, so it appears
+solely on Linux (and only with an NVIDIA GPU). On Termux, use the Dirtybird `c`,
+`rust`, or `go` miners, which ship working Android arm64 builds.
 
 ### List columns
 
