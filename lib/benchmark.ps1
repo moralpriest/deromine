@@ -88,7 +88,8 @@ function Get-MinerBinaryPath {
         [string]$BinDir,
         [string]$PlatformOs,
         [string]$PlatformArch,
-        [switch]$IncludeClosedSource
+        [switch]$IncludeClosedSource,
+        [switch]$ForceResolve
     )
     if ((Get-BenchmarkPolicy $Miner) -eq 'opt-in' -and -not $IncludeClosedSource) { return $null }
     $minerDir = Join-Path $BinDir $Miner.id
@@ -103,17 +104,25 @@ function Get-MinerBinaryPath {
     if (-not $repoHost) { $repoHost = 'github' }
     $branch = [string]$Miner.branch
     $releasePath = [string]$Miner.release_path
-    # Resolve (skips the release API while the cached tag is fresh).
+    # Resolve (skips the release API while the cached tag is fresh, unless
+    # --update forces a re-check).
     $cachedTag = $null
     if (Test-Path -LiteralPath "$binaryPath.tag") {
         $cachedTag = (Get-Content -LiteralPath "$binaryPath.tag" -Raw -ErrorAction SilentlyContinue).Trim()
     }
     $resolved = $null
-    if (-not (Test-CachedTagFresh $binaryPath $PlatformOs)) {
+    if ($ForceResolve -or -not (Test-CachedTagFresh $binaryPath $PlatformOs)) {
         $resolved = Resolve-DownloadAsset -Repo $Miner.repo -RepoHost $repoHost -Branch $branch -ReleasePath $releasePath -Os $PlatformOs -Arch $PlatformArch -Pattern $pattern
     }
     if (-not $resolved -and $cachedTag -and (Test-Path -LiteralPath $binaryPath)) {
-        # Rate-limited/offline fallback: keep benchmarking the cached binary.
+        # Release resolved but the catalog pattern matched no asset: fail
+        # LOUD and keep benchmarking the cached binary. Otherwise it's a
+        # rate-limited/offline outage: keep the cached binary silently.
+        if ($script:LastResolveSawRelease) {
+            Write-Host "  [!] $($Miner.name): catalog pattern '$pattern' matched no asset in the latest release; using cached binary (tag $cachedTag)" -ForegroundColor Red
+        } else {
+            Write-Host "  (release API unreachable; using cached tag $cachedTag)" -ForegroundColor DarkGray
+        }
         $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
     }
     if (-not $resolved) { return $null }
@@ -260,7 +269,8 @@ function Start-MinerBenchmark {
         [string]$Wallet,
         [string]$BinDir,
         [switch]$IncludeClosedSource,
-        [switch]$AssumeYes
+        [switch]$AssumeYes,
+        [switch]$Update
     )
     # ── Benchmark history (compare against last run) ──
     $benchCache = Join-Path $BinDir '.benchmarks.json'
@@ -307,7 +317,7 @@ function Start-MinerBenchmark {
 
     $rows = @()
     foreach ($m in $supported) {
-        $binaryPath = Get-MinerBinaryPath -Miner $m -BinDir $BinDir -PlatformOs $Platform.os -PlatformArch $Platform.arch -IncludeClosedSource:$IncludeClosedSource
+        $binaryPath = Get-MinerBinaryPath -Miner $m -BinDir $BinDir -PlatformOs $Platform.os -PlatformArch $Platform.arch -IncludeClosedSource:$IncludeClosedSource -ForceResolve:$Update
         if (-not $binaryPath) {
             Write-Host "  $($m.name): binary unavailable" -ForegroundColor Red
             Start-Sleep -Seconds 1

@@ -26,6 +26,9 @@ INCLUDE_CLOSED_SOURCE=false
 ASSUME_YES=false
 DEV_FEE_OVERRIDE=""
 RECONFIGURE=false
+FORCE_UPDATE=false
+CHECK_CATALOG=false
+ALWAYS_RESOLVE=false
 
 show_help() {
     cat <<'EOF'
@@ -37,6 +40,8 @@ Usage: deromine [options]
 
   --version              Show version and exit
   --reconfigure          Re-run setup: ask for wallet, node, threads again
+  --update               Check for a new release now (bypasses the tag cache)
+  --check-catalog        Audit catalog asset patterns against the latest releases
   --miner=<id>           Miner id, or "list" to show the catalog table
   --wallet=<addr>        DERO wallet address
   --daemon=<url>         Node/pool host:port (scheme optional)
@@ -103,6 +108,8 @@ parse_cli_args() {
             -h|--help|help|/\?) show_help; exit 0 ;;
             --version) echo "deromine $DEROMINE_VERSION"; exit 0 ;;
             --reconfigure) RECONFIGURE=true; shift ;;
+            --update) FORCE_UPDATE=true; shift ;;
+            --check-catalog) CHECK_CATALOG=true; shift ;;
             *) echo "Unknown: $1"; exit 1 ;;
         esac
     done
@@ -938,12 +945,19 @@ resolve_for_host() {
 # while the cached binary's tag is fresh (cached_tag_fresh). On API failure,
 # falls back to the last recorded tag when the binary is cached. Requires
 # BINARY_PATH and the resolve_* globals; sets TAG (+ ARCHIVE_NAME and
-# DOWNLOAD_URL when a release was actually resolved).
+# DOWNLOAD_URL when a release was actually resolved). Sets RESOLVED_FRESH=true
+# when the release API was actually queried (so callers can distinguish a
+# fresh resolve from a cached/fallback tag).
 resolve_release() {
     local cached=""
-    # The cache-skip also requires the binary to still pass its integrity
-    # check: a corrupt binary inside the TTL must NOT be silently trusted.
-    if [ "$DRY_RUN" != true ] && cached_tag_fresh "$BINARY_PATH" && binary_integrity_ok "$BINARY_PATH"; then
+    RESOLVED_FRESH=false
+    # A direct launch always checks the release API (ALWAYS_RESOLVE) so a new
+    # release is picked up even while the tag cache is fresh. The cache-skip
+    # applies only to fan-out modes (benchmark) and is bypassed by --update.
+    # The skip also requires the binary to still pass its integrity check: a
+    # corrupt binary inside the TTL must NOT be silently trusted.
+    if [ "${ALWAYS_RESOLVE:-false}" != true ] && [ "${FORCE_UPDATE:-false}" != true ] \
+        && [ "$DRY_RUN" != true ] && cached_tag_fresh "$BINARY_PATH" && binary_integrity_ok "$BINARY_PATH"; then
         TAG=$(cat "$BINARY_PATH.tag")
         echo "${C_DIM}  Using cached tag $TAG (release API skipped for ${TAG_CACHE_TTL}s)${C_RESET}" >&2
         return 0
@@ -958,6 +972,7 @@ resolve_release() {
         fi
         return 1
     fi
+    RESOLVED_FRESH=true
     return 0
 }
 
@@ -990,6 +1005,45 @@ for m in "${MINER_JSONS[@]}"; do
     fi
     SUPPORTED+=("$m")
 done
+
+# ── Check-catalog mode ──
+# Audit every catalog asset pattern against the LIVE latest release for the
+# current OS/arch, without downloading anything. Flags a pattern that matched
+# no asset (so a stale miners.json stops masquerading as "latest").
+if [ "$CHECK_CATALOG" = true ]; then
+    draw_banner
+    draw_section "CATALOG CHECK · LATEST RELEASES vs MINERS.JSON PATTERNS"
+    ok=0; bad=0; apifail=0
+    for m in "${MINER_JSONS[@]}"; do
+        id=$(echo "$m" | jq -r '.id')
+        name=$(echo "$m" | jq -r '.name // .id')
+        pattern=$(get_asset_pattern "$m")
+        [ -z "$pattern" ] && { echo "  ${C_DIM}[skip] $name: no asset for $OS/$ARCH${C_RESET}"; continue; }
+        REPO=$(echo "$m" | jq -r '.repo')
+        HOST=$(echo "$m" | jq -r '.host // "github"')
+        BRANCH=$(echo "$m" | jq -r '.branch // "main"')
+        RELEASE_PATH=$(echo "$m" | jq -r '.release_path // "releases"')
+        ASSET_PATTERN="$pattern"
+        ARCHIVE_NAME=""; DOWNLOAD_URL=""; API_RESP=""
+        if ! resolve_for_host; then
+            echo "  ${C_ERR}[api] $name ($REPO): release API failed${C_RESET}"
+            apifail=$((apifail + 1))
+            continue
+        fi
+        if [ -z "$ARCHIVE_NAME" ]; then
+            echo "  ${C_ERR}[MISMATCH] $name ($REPO): pattern '$pattern' matched no asset in $TAG${C_RESET}"
+            bad=$((bad + 1))
+        else
+            echo "  ${C_OK}[ok] $name ($REPO): $TAG -> $ARCHIVE_NAME${C_RESET}"
+            ok=$((ok + 1))
+        fi
+    done
+    echo ""
+    echo "${C_OK}[*] $ok patterns match the latest release${C_RESET}"
+    [ "$bad" -gt 0 ] && echo "${C_ERR}[x] $bad patterns match NO asset in the latest release — update miners.json${C_RESET}"
+    [ "$apifail" -gt 0 ] && echo "${C_DIM}[!] $apifail release API calls failed (rate-limited/offline)${C_RESET}"
+    exit 0
+fi
 
 # ── Benchmark mode ──
 parse_hashrate() {
@@ -1112,7 +1166,10 @@ if $BENCH_MODE; then
             echo "  ${C_ERR}[x] $name: release resolve failed (no cached tag)${C_RESET}"; return
         fi
         if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
-            if [ ! -f "$BINARY_PATH" ]; then
+            if [ "$RESOLVED_FRESH" = true ] && [ -f "$BINARY_PATH" ] && [ -f "$BINARY_PATH.tag" ]; then
+                TAG=$(cat "$BINARY_PATH.tag")
+                echo "  ${C_ERR}[!] $name: catalog pattern '$pattern' matched no asset in the latest release; using cached binary (tag $TAG)${C_RESET}"
+            elif [ ! -f "$BINARY_PATH" ]; then
                 echo "  ${C_ERR}[x] $name: no matching asset${C_RESET}"; return
             fi
         fi
@@ -1352,8 +1409,10 @@ printf '%b\n' "${C_DIM}${T_V}  daemon  ${C_NAME}${DAEMON_URL}${C_RESET}"
 printf '%b\n' "${C_DIM}${T_V}  threads ${C_NAME}${THREAD_COUNT}${C_RESET}"
 
 # ── Resolve download ──
-# The release API is skipped entirely while the cached tag is fresh
-# (resolve_release); MINER_DIR/BINARY_PATH are needed up front for that check.
+# A direct launch always checks the release API (ALWAYS_RESOLVE) so a new
+# release is picked up even while the tag cache is fresh; MINER_DIR/BINARY_PATH
+# are still needed up front for the cached-tag fallback.
+ALWAYS_RESOLVE=true
 REPO=$(echo "$MINER_JSON" | jq -r '.repo')
 HOST=$(echo "$MINER_JSON" | jq -r '.host // "github"')
 BRANCH=$(echo "$MINER_JSON" | jq -r '.branch // "main"')
@@ -1372,7 +1431,22 @@ if [ -n "$ARCHIVE_NAME" ] && [ -n "$DOWNLOAD_URL" ]; then
     echo "  ${C_DIM}Asset: $ARCHIVE_NAME${C_RESET}" >&2
 fi
 if [ -z "$ARCHIVE_NAME" ] || [ -z "$DOWNLOAD_URL" ]; then
-    if [ ! -f "$BINARY_PATH" ]; then
+    if [ "$RESOLVED_FRESH" = true ] && [ -f "$BINARY_PATH" ] && [ -f "$BINARY_PATH.tag" ]; then
+        # The latest release resolved, but the catalog pattern matched no
+        # asset in it. Fail LOUD — a stale pattern silently pins the user to
+        # an old binary while masquerading as "latest". Keep the cached
+        # binary usable (so mining still works) by falling back to its tag,
+        # but never attempt a download with an empty URL.
+        fresh_tag="$TAG"
+        TAG=$(cat "$BINARY_PATH.tag")
+        echo "${C_ERR}[!] Catalog pattern '$ASSET_PATTERN' matched no asset in release $fresh_tag of $REPO${C_RESET}" >&2
+        echo "    Update the pattern in miners.json to keep picking up new releases." >&2
+        if [ -n "${API_RESP:-}" ] && [ "$HOST" != "gitlab-release" ] && [ "$HOST" != "gitlab-branch" ]; then
+            echo "  ${C_DIM}Available assets in the latest release:${C_RESET}" >&2
+            echo "$API_RESP" | jq -r '.assets[].name' | sed 's/^/    /' >&2
+        fi
+        echo "  ${C_DIM}Using cached binary (tag $TAG) while the pattern is broken.${C_RESET}" >&2
+    elif [ ! -f "$BINARY_PATH" ]; then
         echo "${C_ERR}[x] No matching asset for pattern: $ASSET_PATTERN${C_RESET}" >&2
         if [ -n "${API_RESP:-}" ] && [ "$HOST" != "gitlab-release" ] && [ "$HOST" != "gitlab-branch" ]; then
             echo "  ${C_DIM}Available assets in the latest release:${C_RESET}" >&2

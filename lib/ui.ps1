@@ -84,6 +84,8 @@ function Show-Help {
     Write-Host ''
     Write-Host '  --version              Show version and exit' -ForegroundColor Gray
     Write-Host '  --reconfigure          Re-run setup: ask for wallet, node, threads again' -ForegroundColor Gray
+    Write-Host '  --update               Check for a new release now (bypasses the tag cache)' -ForegroundColor Gray
+    Write-Host '  --check-catalog        Audit catalog asset patterns against the latest releases' -ForegroundColor Gray
     Write-Host '  --miner=<id>           Miner id, or "list" to show the catalog table' -ForegroundColor Gray
     Write-Host '  --wallet=<addr>        DERO wallet address' -ForegroundColor Gray
     Write-Host '  --daemon-url=<url>     Node/pool host:port (scheme optional)' -ForegroundColor Gray

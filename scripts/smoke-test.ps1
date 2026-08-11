@@ -328,6 +328,27 @@ try {
     Write-Host "    Error: $_" -ForegroundColor DarkRed
 }
 
+# 4f. New-release wiring: a direct launch always checks the release API;
+# --update/--check-catalog exist, and a broken pattern fails loud instead of
+# silently reusing the cache (mining stays on the cached binary, with warning).
+Write-Host ''
+Write-Host '4f. New-release wiring:' -ForegroundColor Yellow
+try {
+    $mineText = Get-Content (Join-Path $projectDir 'mine.ps1') -Raw
+    Assert-True '  direct launch always resolves' ($mineText -match 'Resolving latest release for' -and $mineText -notmatch 'Using cached release tag')
+    Assert-True '  --update flag wired' ($mineText -match "'--update'")
+    Assert-True '  --check-catalog flag wired' ($mineText -match '--check-catalog')
+    Assert-True '  pattern mismatch fails loud' ($mineText -match 'Update the pattern in miners.json')
+    Assert-True '  mismatch fallback never downloads empty URL' ($mineText -match 'Using cached binary \(tag \$cachedTag\)')
+    $benchText = Get-Content (Join-Path $libDir 'benchmark.ps1') -Raw
+    Assert-True '  benchmark honors --update' ($benchText -match 'ForceResolve')
+    $dlText = Get-Content (Join-Path $libDir 'download.ps1') -Raw
+    Assert-True '  resolve distinguishes API-failure from no-asset-match' ($dlText -match 'LastResolveSawRelease')
+} catch {
+    Assert-True '  new-release wiring present' $false
+    Write-Host "    Error: $_" -ForegroundColor DarkRed
+}
+
 # 5. Binary name resolution
 Write-Host ''
 Write-Host '5. Binary name resolution:' -ForegroundColor Yellow

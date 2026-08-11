@@ -104,12 +104,18 @@ function Get-ReleaseAssetByPattern {
 
 function Resolve-DownloadAsset {
     param([string]$Repo, [string]$RepoHost, [string]$Branch, [string]$ReleasePath, [string]$Os, [string]$Arch, [string]$Pattern)
+    # Distinguishes "release resolved but no asset matched the pattern" from
+    # "release API failed" — both return $null, and callers must report the
+    # two very differently (pattern mismatch = broken catalog; API failure =
+    # transient outage with a legitimate cached-tag fallback).
+    $script:LastResolveSawRelease = $false
     switch ($RepoHost) {
         'gitlab-release' { $release = Get-GitlabLatestRelease -Repo $Repo }
         'gitlab-branch'  { $release = Get-GitlabBranchRelease -Repo $Repo -Branch $Branch -ReleasePath $ReleasePath }
         default          { $release = Get-GithubLatestRelease -Repo $Repo }
     }
     if (-not $release) { return $null }
+    $script:LastResolveSawRelease = $true
     $asset = Get-ReleaseAssetByPattern -Assets $release.Assets -Pattern $Pattern
     if ($asset) {
         Write-Host "  Tag:   $($release.Tag)" -ForegroundColor DarkCyan

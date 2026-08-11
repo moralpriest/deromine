@@ -22,7 +22,7 @@
       "id": "c",
       "name": "Dirtybird C++",
       "binary": "dirtybird-c-miner",
-      "binary_archive": "dirtybird-miner-cpu",
+      "binary_archive": "dirtybird-c-miner",
       "repo": "Dirtybird99/Dirtybird-C-Miner",
       "fee": "0%",
       "risk": "low",
@@ -30,9 +30,9 @@
       "benchmark_policy": "default",
       "type": "cpu",
       "assets": [
-        { "os": "linux",   "arch": "amd64",  "pattern": "dirtybird-miner-amd64-*.tar.gz" },
-        { "os": "linux",   "arch": "aarch64","pattern": "dirtybird-miner-v*_aarch64_android.tar.gz" },
-        { "os": "windows", "arch": "amd64",  "pattern": "dirtybird-miner-win64-*.zip" }
+        { "os": "linux",   "arch": "amd64",  "pattern": "dirtybird-c-miner-amd64-*.tar.gz" },
+        { "os": "linux",   "arch": "aarch64","pattern": "dirtybird-c-miner-arm64-*.tar.gz" },
+        { "os": "windows", "arch": "amd64",  "pattern": "dirtybird-c-miner-win64-*.zip" }
       ]
     },
     {

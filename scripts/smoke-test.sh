@@ -365,7 +365,7 @@ eval "$(sed -n '/^resolve_release()/,/^}/p' mine.sh)"
 OS=linux
 TAG_CACHE_TTL=21600
 DRY_RUN=false
-C_HDR=''; C_DIM=''
+C_HDR=''; C_DIM=''; C_RESET=''
 REPO=some/repo
 BINARY_PATH="$tmpcache/fresh.bin"
 printf 'v0.3.0\n' > "$tmpcache/fresh.bin.tag"
@@ -403,7 +403,39 @@ if resolve_release >/dev/null 2>&1; then
 else
     pass "API unreachable with no cached tag fails"
 fi
+# A direct launch (ALWAYS_RESOLVE=true) checks the release API even while the
+# tag is fresh; --update (FORCE_UPDATE=true) forces a re-check in fan-out
+# modes too.
+printf 'v0.3.0\n' > "$tmpcache/fresh.bin.tag"
+printf '%s\n' "$(date +%s)" > "$tmpcache/fresh.bin.tagtime"
+call_log=""
+resolve_for_host() { call_log="CALLED"; }
+TAG=""
+ALWAYS_RESOLVE=true
+resolve_release >/dev/null 2>&1
+if [ "$call_log" = "CALLED" ]; then
+    pass "direct launch checks the API even while the tag is fresh"
+else
+    fail "direct launch checks the API even while the tag is fresh (called=[$call_log])"
+fi
+ALWAYS_RESOLVE=false
+FORCE_UPDATE=true
+call_log=""
+TAG=""
+resolve_release >/dev/null 2>&1
+if [ "$call_log" = "CALLED" ]; then
+    pass "--update forces a release re-check in fan-out mode"
+else
+    fail "--update forces a release re-check in fan-out mode (called=[$call_log])"
+fi
+unset ALWAYS_RESOLVE FORCE_UPDATE
 unset -f cached_tag_fresh resolve_release resolve_for_host binary_integrity_ok
+# New-release wiring: direct launch always checks the API, --update/--check-catalog
+# exist, and a broken pattern fails loud instead of silently reusing the cache.
+if grep -q 'ALWAYS_RESOLVE=true' mine.sh; then pass "mine.sh wires always-resolve on direct launch"; else fail "mine.sh wires always-resolve on direct launch"; fi
+if grep -q -- '--check-catalog' mine.sh; then pass "mine.sh supports --check-catalog"; else fail "mine.sh supports --check-catalog"; fi
+if grep -q 'matched no asset in release' mine.sh; then pass "mine.sh fails loud on pattern mismatch"; else fail "mine.sh fails loud on pattern mismatch"; fi
+if grep -q 'Update the pattern in miners.json' mine.sh; then pass "mine.sh points at miners.json on mismatch"; else fail "mine.sh points at miners.json on mismatch"; fi
 rm -rf "$tmpcache"
 
 # 5e. Lifted binaries keep their dependencies. Windows releases ship DLLs

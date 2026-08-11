@@ -30,6 +30,8 @@ $benchTime       = 30
 $includeClosedSource = $false
 $assumeYes       = $false
 $addExclusion    = $false
+$update          = $false
+$checkCatalog    = $false
 $devFee          = ''
 $outputDir       = Join-Path $projectDir 'bin'
 $configPath      = Join-Path $projectDir 'config.json'
@@ -89,6 +91,8 @@ for ($i = 0; $i -lt $params.Count; $i++) {
     }
     switch -Wildcard ($params[$i]) {
         '--reconfigure'       { $reconfigure     = $true }
+        '--update'            { $update          = $true }
+        '--check-catalog'     { $checkCatalog    = $true }
         '--add-exclusion'     { $addExclusion    = $true }
         '--daemon=*'          { $daemonUrl      = Join-DaemonValue $params $i; $daemonFlag = $true }
         '--wallet=*'          { $walletAddress   = ($params[$i] -split '=')[1] }
@@ -158,6 +162,45 @@ if ($minerType -and $minerType -eq 'list') {
     exit 0
 }
 
+# ── Check-catalog mode ──
+# Audit every catalog asset pattern against the LIVE latest release for the
+# current OS/arch, without downloading anything. Flags a pattern that matched
+# no asset (so a stale miners.json stops masquerading as "latest").
+if ($checkCatalog) {
+    $catalog = Read-Catalog $minersJsonPath
+    if (-not $catalog) { exit 1 }
+    $p = Get-PwshPlatform
+    $okCount = 0; $badCount = 0; $apiFailCount = 0
+    foreach ($m in $catalog.miners) {
+        $asset = Get-MinerAsset $m $p.os $p.arch
+        if (-not $asset) {
+            Write-Host "  [skip] $($m.id): no asset for $($p.os)/$($p.arch)" -ForegroundColor DarkGray
+            continue
+        }
+        $repoHost = [string]$m.host; if (-not $repoHost) { $repoHost = 'github' }
+        $repoBranch = [string]$m.branch
+        $repoReleasePath = [string]$m.release_path
+        $resolved = Resolve-DownloadAsset -Repo $m.repo -RepoHost $repoHost -Branch $repoBranch -ReleasePath $repoReleasePath -Os $p.os -Arch $p.arch -Pattern ([string]$asset.pattern)
+        if (-not $resolved) {
+            if ($script:LastResolveSawRelease) {
+                Write-Host "  [MISMATCH] $($m.id) ($($m.repo)): pattern '$($asset.pattern)' matched no asset in the latest release" -ForegroundColor Red
+                $badCount++
+            } else {
+                Write-Host "  [api] $($m.id) ($($m.repo)): release API failed" -ForegroundColor Red
+                $apiFailCount++
+            }
+            continue
+        }
+        Write-Host "  [ok] $($m.id) ($($m.repo)): $($resolved.Tag) -> $($resolved.Name)" -ForegroundColor Green
+        $okCount++
+    }
+    Write-Host ''
+    Write-Host "[*] $okCount patterns match the latest release" -ForegroundColor Green
+    if ($badCount -gt 0) { Write-Host "[x] $badCount patterns match NO asset in the latest release - update miners.json" -ForegroundColor Red }
+    if ($apiFailCount -gt 0) { Write-Host "[!] $apiFailCount release API calls failed (rate-limited/offline)" -ForegroundColor DarkYellow }
+    exit 0
+}
+
 # ── Resolve miner (interactive or --miner flag) ──
 $platform = Get-PwshPlatform
 
@@ -202,7 +245,7 @@ if ($benchmark) {
         $benchThreads = $cpus - 1
     }
     if ($benchThreads -lt 1) { $benchThreads = 1 }
-    Start-MinerBenchmark -Catalog $catalog -Platform $platform -BenchTime $benchTime -Threads $benchThreads -Daemon $liveDaemon -Wallet $walletAddress -BinDir $outputDir -IncludeClosedSource:$includeClosedSource -AssumeYes:$assumeYes
+    Start-MinerBenchmark -Catalog $catalog -Platform $platform -BenchTime $benchTime -Threads $benchThreads -Daemon $liveDaemon -Wallet $walletAddress -BinDir $outputDir -IncludeClosedSource:$includeClosedSource -AssumeYes:$assumeYes -Update:$update
     exit 0
 }
 
@@ -236,6 +279,7 @@ if (-not $minerType -or $minerType -eq 'interactive') {
             $benchArgs = @('--benchmark')
             if ($includeClosedSource) { $benchArgs += '--include-closed-source' }
             if ($assumeYes) { $benchArgs += '--yes' }
+            if ($update) { $benchArgs += '--update' }
             & $PSCommandPath @benchArgs
             exit 0
         }
@@ -391,10 +435,10 @@ if (-not (Test-Path $minerDir)) {
 $binaryPath = Join-Path $minerDir $binaryName
 
 # ── Resolve real download URL from GitHub/GitLab (runtime) ──
-# The release API is skipped entirely while the cached binary's recorded tag
-# is fresh (Test-CachedTagFresh) — GitHub/GitLab rate-limit unauthenticated
-# API calls, and a normal user re-runs deromine far more often than a miner
-# gets a new release. --dry-run always checks, since it reports the asset URL.
+# A direct launch always checks the release API so a new release is picked up
+# even while the tag cache is fresh (benchmark mode keeps the TTL skip unless
+# --update is given). GitHub/GitLab rate-limit unauthenticated API calls
+# (GitHub: 60/hr per IP); on failure deromine falls back to the cached tag.
 $repoHost = [string]$miner.host
 if (-not $repoHost) { $repoHost = 'github' }
 $repoBranch = [string]$miner.branch
@@ -405,21 +449,33 @@ if (Test-Path -LiteralPath $tagPath) {
     $cachedTag = (Get-Content -LiteralPath $tagPath -Raw -ErrorAction SilentlyContinue).Trim()
 }
 $resolved = $null
-if (-not $dryRun -and (Test-CachedTagFresh $binaryPath $platform.os)) {
-    Write-Host "`nUsing cached release tag $cachedTag (release API skipped)" -ForegroundColor DarkCyan
-    $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
-} else {
-    Write-Host "`nResolving latest release for $($miner.repo)..." -ForegroundColor Cyan
-    $resolved = Resolve-DownloadAsset -Repo $miner.repo -RepoHost $repoHost -Branch $repoBranch -ReleasePath $repoReleasePath -Os $platform.os -Arch $platform.arch -Pattern $assetPattern
-}
+Write-Host "`nResolving latest release for $($miner.repo)..." -ForegroundColor Cyan
+$resolved = Resolve-DownloadAsset -Repo $miner.repo -RepoHost $repoHost -Branch $repoBranch -ReleasePath $repoReleasePath -Os $platform.os -Arch $platform.arch -Pattern $assetPattern
 if (-not $resolved) {
-    # Rate-limited/offline: fall back to the last recorded tag when the
-    # binary is cached, so deromine keeps working during API outages.
-    if ($cachedTag -and (Test-Path -LiteralPath $binaryPath)) {
-        Write-Host "  (release API unreachable; using cached tag $cachedTag)" -ForegroundColor DarkYellow
-        $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
+    if ($script:LastResolveSawRelease) {
+        # The release resolved, but the catalog pattern matched no asset in
+        # it (Resolve-DownloadAsset already listed the available assets).
+        # Fail LOUD — a stale pattern silently pins the user to an old
+        # binary while masquerading as "latest". Keep the cached binary
+        # usable (so mining still works) by falling back to its tag, but
+        # never attempt a download with an empty URL.
+        if ($cachedTag -and (Test-Path -LiteralPath $binaryPath)) {
+            Write-Host "  [x] Catalog pattern '$assetPattern' matched no asset in the latest release of $($miner.repo)" -ForegroundColor Red
+            Write-Host "      Update the pattern in miners.json to keep picking up new releases." -ForegroundColor DarkYellow
+            Write-Host "  Using cached binary (tag $cachedTag) while the pattern is broken." -ForegroundColor DarkYellow
+            $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
+        } else {
+            exit 1
+        }
     } else {
-        exit 1
+        # Rate-limited/offline: fall back to the last recorded tag when the
+        # binary is cached, so deromine keeps working during API outages.
+        if ($cachedTag -and (Test-Path -LiteralPath $binaryPath)) {
+            Write-Host "  (release API unreachable; using cached tag $cachedTag)" -ForegroundColor DarkYellow
+            $resolved = [PSCustomObject]@{ Tag = $cachedTag; Name = ''; Url = ''; Size = [long]0 }
+        } else {
+            exit 1
+        }
     }
 }
 
