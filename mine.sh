@@ -8,7 +8,7 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 DEFAULT_DAEMON_PORT=10100
 DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
-DEROMINE_VERSION="1.1.4"
+DEROMINE_VERSION="1.1.5"
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"
@@ -280,12 +280,28 @@ get_miner_by_id() {
     return 1
 }
 
+# The catalog OS used for asset selection: on Termux/Android, prefer the
+# 'termux' asset (e.g. Dirtybird's NDK-built aarch64_android binary — the
+# plain 'linux' arm64 build is glibc-linked and cannot load on bionic) and
+# fall back to the 'linux' build when no termux asset exists. Everywhere
+# else selection is by OS exactly as before.
+asset_os() {
+    if [ "$IS_TERMUX" -eq 1 ]; then echo "termux"; else echo "$OS"; fi
+}
+asset_os_fallback() {
+    if [ "$IS_TERMUX" -eq 1 ]; then echo "linux"; else echo ""; fi
+}
+
 get_asset_pattern() {
     local miner_json="$1"
     # One pattern per OS/arch (first match wins). Multiple entries for the
     # same OS/arch would produce a multi-line pattern that can never match
-    # a real release asset name.
-    echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '.assets[] | select(.os == $os and .arch == $arch) | .pattern' | head -1
+    # a real release asset name. On Termux, a 'termux' asset wins over the
+    # matching 'linux' asset when both exist for this arch.
+    echo "$miner_json" | jq -r --arg os "$(asset_os)" --arg fbos "$(asset_os_fallback)" --arg arch "$ARCH" '
+        (first(.assets[] | select(.os == $os and .arch == $arch)).pattern)
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and .arch == $arch)).pattern else null end)
+        // ""' | head -1
 }
 
 # Binary name: per-asset override (exact OS/arch first, then any asset for
@@ -294,9 +310,11 @@ get_asset_pattern() {
 # on aarch64 vs dero-miner-linux-amd64 on amd64).
 get_binary_name() {
     local miner_json="$1" name
-    name=$(echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '
+    name=$(echo "$miner_json" | jq -r --arg os "$(asset_os)" --arg fbos "$(asset_os_fallback)" --arg arch "$ARCH" '
         first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and .arch == $arch and ((.binary // "") != ""))).binary else null end)
         // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and ((.binary // "") != ""))).binary else null end)
         // .binary
         // ""')
     if [ "$OS" = "windows" ] && [ -n "$name" ] && [[ "$name" != *.exe ]]; then
@@ -324,11 +342,15 @@ get_archive_binary_name() {
     # binary_archive, then per-asset binary, then the miner-level fields.
     # Order matters: derohe's top-level binary_archive is amd64-specific, so
     # the per-asset binary must win on aarch64.
-    name=$(echo "$miner_json" | jq -r --arg os "$OS" --arg arch "$ARCH" '
+    name=$(echo "$miner_json" | jq -r --arg os "$(asset_os)" --arg fbos "$(asset_os_fallback)" --arg arch "$ARCH" '
         first(.assets[] | select(.os == $os and .arch == $arch and ((.binary_archive // "") != ""))).binary_archive
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and .arch == $arch and ((.binary_archive // "") != ""))).binary_archive else null end)
         // first(.assets[] | select(.os == $os and .arch == $arch and ((.binary // "") != ""))).binary
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and .arch == $arch and ((.binary // "") != ""))).binary else null end)
         // first(.assets[] | select(.os == $os and ((.binary_archive // "") != ""))).binary_archive
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and ((.binary_archive // "") != ""))).binary_archive else null end)
         // first(.assets[] | select(.os == $os and ((.binary // "") != ""))).binary
+        // (if $fbos != "" then first(.assets[] | select(.os == $fbos and ((.binary // "") != ""))).binary else null end)
         // .binary_archive
         // .binary
         // ""')
@@ -362,13 +384,20 @@ binary_integrity_ok() {
 }
 
 # A cached binary is usable only if its recorded release tag matches the
-# currently-resolved latest tag AND it passes the integrity check.
+# currently-resolved latest tag, it passes the integrity check, AND it came
+# from the same release asset we would pick now. The asset check matters on
+# Termux: the cached binary may have been fetched from a 'linux' fallback
+# build before a proper 'termux' asset existed (or vice versa) - the tag is
+# identical either way, so only the sidecar can tell them apart.
 cached_binary_usable() {
     local path="$1" tag="$2" cached=""
     [ -f "$path" ] || return 1
     [ -f "$path.tag" ] || return 1
     cached=$(cat "$path.tag" 2>/dev/null)
     [ "$cached" = "$tag" ] || return 1
+    if [ -n "$ARCHIVE_NAME" ] && [ -f "$path.asset" ]; then
+        [ "$(cat "$path.asset" 2>/dev/null)" = "$ARCHIVE_NAME" ] || return 1
+    fi
     binary_integrity_ok "$path"
 }
 
@@ -521,13 +550,27 @@ fetch_binary() {
         else
             echo "${C_DIM}  Incomplete/corrupt download. Remove '$MINER_DIR' and retry.${C_RESET}" >&2
         fi
-        rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
+        rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset"
         return 1
     fi
     # Record the release tag (and when it was fetched) so future runs can
     # detect a stale cache and skip the release API while it is fresh.
     printf '%s\n' "$TAG" > "$BINARY_PATH.tag"
     date +%s > "$BINARY_PATH.tagtime" 2>/dev/null || true
+    # Record which release asset produced this binary. If a later run
+    # resolves a DIFFERENT asset for the same miner (e.g. Termux gains a
+    # proper 'termux' build where the cached binary came from a 'linux'
+    # fallback), the cache is treated as stale and re-downloaded.
+    printf '%s\n' "$ARCHIVE_NAME" > "$BINARY_PATH.asset"
+    # A fresh download invalidates any launch-failure memory for this miner:
+    # the old .fails/.ok verdict applied to a previous binary, not this one.
+    rm -f "$MINER_DIR/.fails" "$MINER_DIR/.ok"
+    # Optional ELF patching for Termux/Android (fixes missing DT_NOTE / rpath
+    # on bionic). Best-effort: only runs when the tool is installed; the
+    # NDK-built 'termux' assets should already be clean.
+    if [ "$IS_TERMUX" -eq 1 ] && command -v termux-elf-cleaner >/dev/null 2>&1; then
+        termux-elf-cleaner "$BINARY_PATH" >/dev/null 2>&1 || true
+    fi
 }
 
 # ── Hardware detection ──
@@ -1396,14 +1439,19 @@ if [ "$THREAD_COUNT" -eq 0 ]; then
     THREAD_COUNT="${tc:-$DEFAULT_TC}"
 fi
 
-# Save config
-jq -n \
-    --arg w "$WALLET_ADDR" \
-    --arg d "$DAEMON_URL" \
-    --argjson t "$THREAD_COUNT" \
-    '{wallet_address: $w, daemon_url: $d, thread_count: $t}' > "$CONFIG_FILE"
-echo "${C_OK}[*] Config saved to $CONFIG_FILE${C_RESET}" >&2
-draw_section "CONFIGURATION READY" >&2
+# Save config. A dry-run is read-only: it must never persist whatever
+# --wallet/--daemon/--threads were passed on the command line, or it would
+# clobber the real saved config (the dry-run exit happens later, after the
+# LAUNCH PLAN is printed).
+if ! $DRY_RUN; then
+    jq -n \
+        --arg w "$WALLET_ADDR" \
+        --arg d "$DAEMON_URL" \
+        --argjson t "$THREAD_COUNT" \
+        '{wallet_address: $w, daemon_url: $d, thread_count: $t}' > "$CONFIG_FILE"
+    echo "${C_OK}[*] Config saved to $CONFIG_FILE${C_RESET}" >&2
+    draw_section "CONFIGURATION READY" >&2
+fi
 printf '%b\n' "${C_DIM}${T_V}  wallet  ${C_NAME}${WALLET_ADDR:0:8}…${WALLET_ADDR: -6}${C_RESET}"
 printf '%b\n' "${C_DIM}${T_V}  daemon  ${C_NAME}${DAEMON_URL}${C_RESET}"
 printf '%b\n' "${C_DIM}${T_V}  threads ${C_NAME}${THREAD_COUNT}${C_RESET}"
@@ -1483,7 +1531,7 @@ if [ ! -f "$BINARY_PATH" ]; then
     fetch_binary || exit 1
 elif ! cached_binary_usable "$BINARY_PATH" "$TAG"; then
     echo "${C_ERR}[x] Cached binary is stale or corrupt; re-downloading${C_RESET}" >&2
-    rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
+    rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset"
     fetch_binary || exit 1
 else
     echo "${C_OK}[*] Using cached binary: $BINARY_PATH ($TAG)${C_RESET}" >&2

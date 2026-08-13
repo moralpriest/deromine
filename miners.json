@@ -32,6 +32,7 @@
       "assets": [
         { "os": "linux",   "arch": "amd64",  "pattern": "dirtybird-c-miner-amd64-*.tar.gz" },
         { "os": "linux",   "arch": "aarch64","pattern": "dirtybird-c-miner-arm64-*.tar.gz" },
+        { "os": "termux",  "arch": "aarch64","pattern": "dirtybird-c-miner-*_aarch64_android.tar.gz", "binary": "dirtybird-c-miner" },
         { "os": "windows", "arch": "amd64",  "pattern": "dirtybird-c-miner-win64-*.zip" }
       ]
     },
