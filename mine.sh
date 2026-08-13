@@ -398,7 +398,61 @@ cached_binary_usable() {
     if [ -n "$ARCHIVE_NAME" ] && [ -f "$path.asset" ]; then
         [ "$(cat "$path.asset" 2>/dev/null)" = "$ARCHIVE_NAME" ] || return 1
     fi
-    binary_integrity_ok "$path"
+    binary_integrity_ok "$path" || return 1
+    # On Termux, a cached ELF whose PT_TLS segment bionic would abort (stale
+    # build of the same release tag) must be re-downloaded, not launched into
+    # a loader SIGABRT. The rebuilt release asset typically has no PT_TLS and
+    # passes trivially.
+    if [ "${IS_TERMUX:-0}" -eq 1 ] && ! elf_tls_bionic_ok "$path"; then
+        return 1
+    fi
+    return 0
+}
+
+# ── Termux/Android bionic TLS layout check ──
+# ARM64 bionic aborts an executable whose PT_TLS segment cannot hold the 8-word
+# TCB (64 bytes) in its alignment padding before the thread pointer. The loader
+# fatal is exact (bionic_elf_tls.cpp: abi_tpoff != actual_tpoff), reproduced
+# here so a cached binary is re-downloaded BEFORE the loader SIGABRTs:
+#   abi_tpoff    = align_checked(2 * sizeof(void*),   {align, skew})
+#   actual_tpoff = align_checked(tcb_size_post = 64,  {align, skew})
+#   align_checked(v,{a,s}) = ((v - s + a - 1) & ~(a - 1)) + s ;  s = p_vaddr % a
+# A stale NDK build (e.g. dirtybird-c-miner v1.0.39's old aarch64_android)
+# ships p_align=8; termux-elf-cleaner bumps it to 64 but CANNOT re-align the
+# segment, leaving p_vaddr % 64 = 48 (skew) — still fatal. The rebuilt release
+# has no PT_TLS at all and passes. Returns 0 when the loader would accept it,
+# 1 when bionic would abort it.
+elf_tls_bionic_ok() {
+    local bin="$1"
+    local magic class phoff phentsize phnum i o ptype vaddr palign
+    local skew abi_tpoff actual_tpoff tcb_size
+    magic=$(od -An -tx1 -j0 -N4 "$bin" 2>/dev/null | tr -d ' ')
+    [ "$magic" = "7f454c46" ] || return 0          # not an ELF: nothing to check
+    class=$(od -An -tu1 -j4 -N1 "$bin" 2>/dev/null | tr -d ' ')
+    [ "$class" = "2" ] || return 0                  # ELF32: older ARM, no 64B rule
+    phoff=$(od -An -tu8 -j32 -N8 "$bin" 2>/dev/null | tr -d ' ')
+    phentsize=$(od -An -tu2 -j54 -N2 "$bin" 2>/dev/null | tr -d ' ')
+    phnum=$(od -An -tu2 -j56 -N2 "$bin" 2>/dev/null | tr -d ' ')
+    [ -n "$phoff" ] && [ -n "$phentsize" ] && [ -n "$phnum" ] || return 0
+    [ "$phentsize" -ge 56 ] || return 0             # Elf64_Phdr is 56 bytes
+    tcb_size=64                                      # 8 Bionic TLS slots * 8 bytes
+    i=0
+    while [ "$i" -lt "$phnum" ]; do
+        o=$((phoff + i * phentsize))
+        ptype=$(od -An -tu4 -j"$o" -N4 "$bin" 2>/dev/null | tr -d ' ')
+        if [ "$ptype" = "7" ]; then                  # PT_TLS
+            vaddr=$(od -An -tu8 -j$((o + 16)) -N8 "$bin" 2>/dev/null | tr -d ' ')
+            palign=$(od -An -tu8 -j$((o + 48)) -N8 "$bin" 2>/dev/null | tr -d ' ')
+            [ -n "$vaddr" ] && [ -n "$palign" ] || return 0
+            [ "$palign" -eq 0 ] && palign=1          # 0 = "no alignment requirement"
+            skew=$(( vaddr % palign ))
+            abi_tpoff=$(( ((16 - skew + palign - 1) & ~(palign - 1)) + skew ))
+            actual_tpoff=$(( ((tcb_size - skew + palign - 1) & ~(palign - 1)) + skew ))
+            [ "$abi_tpoff" -eq "$actual_tpoff" ] || return 1
+        fi
+        i=$((i + 1))
+    done
+    return 0
 }
 
 # ── Release-tag cache ──
@@ -1613,6 +1667,19 @@ fi
 # the loader (e.g. dirtybird-c-miner's aarch64_android build: TLS underaligned,
 # needs 64). Idempotent via the .cleaned marker.
 termux_patch_binary "$BINARY_PATH"
+# Launch-time self-heal for Termux: even after patching, a cached binary may
+# still fail bionic's TLS layout check (termux-elf-cleaner can raise p_align to
+# 64 but cannot re-align a skewed segment, e.g. stale dirtybird-c-miner
+# v1.0.39's p_vaddr % 64 = 48). Detect it statically and re-download once
+# instead of letting the loader SIGABRT — the rebuilt release asset ships no
+# PT_TLS and passes. Guarded so a genuinely broken release can't loop forever.
+if [ "${IS_TERMUX:-0}" -eq 1 ] && [ -f "$BINARY_PATH" ] && ! elf_tls_bionic_ok "$BINARY_PATH"; then
+    echo "${C_ERR}[x] Cached binary fails bionic's TLS layout check; re-downloading${C_RESET}" >&2
+    rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset" "$BINARY_PATH.cleaned"
+    if fetch_binary; then
+        termux_patch_binary "$BINARY_PATH"
+    fi
+fi
 
 # ── Build args ──
 DAEMON_ADDR="${DAEMON_URL#http://}"
