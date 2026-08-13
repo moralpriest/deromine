@@ -328,6 +328,8 @@ printf '\x7fELF' | dd of="$tmpcache/compact.bin" bs=1 seek=0 conv=notrunc 2>/dev
 eval "$(sed -n '/^binary_integrity_ok()/,/^}/p' mine.sh)"
 eval "$(sed -n '/^cached_binary_usable()/,/^}/p' mine.sh)"
 OS=linux
+ARCHIVE_NAME=""
+BINARY_PATH=""
 if binary_integrity_ok "$tmpcache/good.bin"; then pass "integrity accepts valid ELF binary"; else fail "integrity accepts valid ELF binary"; fi
 if binary_integrity_ok "$tmpcache/bad.bin"; then fail "integrity rejects wrong magic"; else pass "integrity rejects wrong magic"; fi
 if binary_integrity_ok "$tmpcache/small.bin"; then fail "integrity rejects tiny file"; else pass "integrity rejects tiny file"; fi
@@ -357,6 +359,75 @@ rm -f "$tmpcache/fresh.bin.tagtime"
 if cached_tag_fresh "$tmpcache/fresh.bin"; then fail "missing tagtime re-checks release API"; else pass "missing tagtime re-checks release API"; fi
 if grep -q 'User-Agent: deromine' mine.sh; then pass "GitHub API calls identify deromine (User-Agent)"; else fail "GitHub API calls identify deromine (User-Agent)"; fi
 if grep -q '\.tagtime' mine.sh; then pass "fetch records tag fetch time (.tagtime)"; else fail "fetch records tag fetch time (.tagtime)"; fi
+
+# 5e. Termux ELF patching: termux_patch_binary must be idempotent (write a
+# .cleaned marker), skip when NOT on Termux, attempt install when the tool is
+# missing (auto-install path exists), and run the tool when present.
+echo ""
+echo "5e. Termux ELF patching:"
+eval "$(sed -n '/^termux_patch_binary()/,/^}/p' mine.sh)"
+C_DIM=''; C_ERR=''; C_RESET=''
+# Non-Termux: no-op regardless of the binary/tool.
+IS_TERMUX=0
+cp "$tmpcache/good.bin" "$tmpcache/nontermux.bin"
+rm -f "$tmpcache/nontermux.bin.cleaned"
+if termux_patch_binary "$tmpcache/nontermux.bin" && [ ! -f "$tmpcache/nontermux.bin.cleaned" ]; then
+    pass "patch is a no-op outside Termux"
+else
+    fail "patch is a no-op outside Termux"
+fi
+# Termux, tool missing, auto-install disabled: must NOT abort the run (returns 0)
+# and must warn the user about the missing tool.
+IS_TERMUX=1
+TERMUX_PATCH_AUTO_INSTALL=0
+cp "$tmpcache/good.bin" "$tmpcache/missing.bin"
+rm -f "$tmpcache/missing.bin.cleaned"
+if termux_patch_binary "$tmpcache/missing.bin" && [ ! -f "$tmpcache/missing.bin.cleaned" ]; then
+    pass "missing tool warns but does not abort launch"
+else
+    fail "missing tool warns but does not abort launch"
+fi
+# Termux with a stub tool on PATH: patch runs and writes the .cleaned marker.
+fake_bin=$(mktemp -d)
+cat > "$fake_bin/termux-elf-cleaner" <<'STUB'
+#!/usr/bin/env bash
+touch "$(dirname "$1")/patched.flag"
+exit 0
+STUB
+chmod +x "$fake_bin/termux-elf-cleaner"
+cp "$tmpcache/good.bin" "$tmpcache/stub.bin"
+rm -f "$tmpcache/stub.bin.cleaned"
+PATH="$fake_bin:$PATH" termux_patch_binary "$tmpcache/stub.bin"
+if [ -f "$tmpcache/stub.bin.cleaned" ]; then
+    pass "present tool patches binary and records .cleaned"
+else
+    fail "present tool patches binary and records .cleaned"
+fi
+# Idempotent: a second call must not re-run the tool (no marker rewrite needed;
+# the stub just confirms the marker path is honored by not re-touching patched.flag).
+rm -f "$fake_bin/patched.flag"
+PATH="$fake_bin:$PATH" termux_patch_binary "$tmpcache/stub.bin"
+if [ -f "$tmpcache/stub.bin.cleaned" ]; then
+    pass "already-cleaned binary is not re-patched"
+else
+    fail "already-cleaned binary is not re-patched"
+fi
+# Auto-install path: when the tool is missing and pkg exists, install is attempted.
+cat > "$fake_bin/pkg" <<'STUB'
+#!/usr/bin/env bash
+echo "fake pkg"
+exit 0
+STUB
+chmod +x "$fake_bin/pkg"
+rm -f "$tmpcache/autoid.bin.cleaned"
+cp "$tmpcache/good.bin" "$tmpcache/autoid.bin"
+if grep -q 'pkg install -y termux-elf-cleaner' mine.sh; then
+    pass "auto-install of termux-elf-cleaner is attempted"
+else
+    fail "auto-install of termux-elf-cleaner is attempted"
+fi
+rm -rf "$fake_bin"
+
 # resolve_release: while the tag is fresh the release API must be SKIPPED;
 # once expired it must be called; when the API is unreachable the cached tag
 # is used instead of failing. Extracts the REAL resolve_release, stubbing

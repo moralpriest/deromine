@@ -193,6 +193,23 @@ if ! install_pwsh_if_missing; then
     show_pwsh_install_guide
 fi
 
+# Termux/Android: several miner binaries (e.g. dirtybird-c-miner's
+# aarch64_android build) ship with a TLS segment underaligned for bionic
+# (needs 64-byte alignment) and abort in the loader. termux-elf-cleaner
+# patches them at fetch/launch time, so ensure it's installed up front.
+install_termux_elf_cleaner_if_missing() {
+    $is_termux || return 0
+    command -v termux-elf-cleaner >/dev/null 2>&1 && return 0
+    echo "  [*] Installing termux-elf-cleaner (patches miner binaries for Android/bionic)..."
+    if command -v pkg >/dev/null 2>&1; then
+        pkg install -y termux-elf-cleaner || \
+            echo "  [!] termux-elf-cleaner install failed; run 'pkg install termux-elf-cleaner' manually." >&2
+    else
+        echo "  [!] 'pkg' not found; run 'pkg install termux-elf-cleaner' manually." >&2
+    fi
+}
+install_termux_elf_cleaner_if_missing
+
 mkdir -p "$data_home" "$bin_home"
 
 if [ -d "$install_dir/.git" ]; then

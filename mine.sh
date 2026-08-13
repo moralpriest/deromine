@@ -8,7 +8,7 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 DEFAULT_DAEMON_PORT=10100
 DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
-DEROMINE_VERSION="1.1.6"
+DEROMINE_VERSION="1.1.7"
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"
@@ -582,7 +582,7 @@ fetch_binary() {
         else
             echo "${C_DIM}  Incomplete/corrupt download. Remove '$MINER_DIR' and retry.${C_RESET}" >&2
         fi
-        rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset"
+    rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset" "$BINARY_PATH.cleaned"
         return 1
     fi
     # Record the release tag (and when it was fetched) so future runs can
@@ -597,12 +597,44 @@ fetch_binary() {
     # A fresh download invalidates any launch-failure memory for this miner:
     # the old .fails/.ok verdict applied to a previous binary, not this one.
     rm -f "$MINER_DIR/.fails" "$MINER_DIR/.ok"
-    # Optional ELF patching for Termux/Android (fixes missing DT_NOTE / rpath
-    # on bionic). Best-effort: only runs when the tool is installed; the
-    # NDK-built 'termux' assets should already be clean.
-    if [ "$IS_TERMUX" -eq 1 ] && command -v termux-elf-cleaner >/dev/null 2>&1; then
-        termux-elf-cleaner "$BINARY_PATH" >/dev/null 2>&1 || true
+    # ELF patching for Termux/Android (bionic requires 64-byte TLS alignment;
+    # even NDK-built 'termux' assets can ship underaligned). Runs whenever the
+    # tool is available; a missing tool is installed on the spot (Termux) so a
+    # fresh fetch is patched before first launch instead of aborting in the
+    # bionic loader like dirtybird-c-miner v1.0.39's aarch64_android build.
+    termux_patch_binary "$BINARY_PATH"
+}
+
+# Patch an ELF binary for Termux/Android: align TLS, fix missing DT_NOTE/rpath
+# so bionic's loader accepts it. The tool is best-effort at fetch time AND
+# before launch (covers an already-cached binary fetched before the tool
+# existed). When missing on Termux, attempts `pkg install termux-elf-cleaner`
+# once per run; a persistent failure is surfaced as a warning so the user
+# knows WHY the miner would abort in the loader. Idempotent via a .cleaned
+# marker so cached binaries are patched at most once per download.
+termux_patch_binary() {
+    local bin="$1" done tried=false
+    [ "$IS_TERMUX" -eq 1 ] || return 0
+    [ -n "$bin" ] && [ -f "$bin" ] || return 0
+    done="$bin.cleaned"
+    [ -f "$done" ] && return 0
+    if ! command -v termux-elf-cleaner >/dev/null 2>&1; then
+        if [ "${TERMUX_PATCH_AUTO_INSTALL:-1}" = "1" ] && command -v pkg >/dev/null 2>&1; then
+            echo "${C_DIM}[*] Installing termux-elf-cleaner (needed to run miner binaries on Termux)...${C_RESET}" >&2
+            pkg install -y termux-elf-cleaner >/dev/null 2>&1 && tried=true
+        fi
+        if ! command -v termux-elf-cleaner >/dev/null 2>&1; then
+            echo "${C_ERR}[!] termux-elf-cleaner not available; this miner will likely abort in the bionic loader${C_RESET}" >&2
+            echo "${C_DIM}    Install it once: pkg install termux-elf-cleaner${C_RESET}" >&2
+            return 0
+        fi
     fi
+    if termux-elf-cleaner "$bin" >/dev/null 2>&1; then
+        : > "$done"
+    else
+        echo "${C_DIM}[!] termux-elf-cleaner reported an issue patching $bin (continuing anyway)${C_RESET}" >&2
+    fi
+    return 0
 }
 
 # ── Hardware detection ──
@@ -1254,7 +1286,7 @@ if $BENCH_MODE; then
             if ! fetch_binary; then echo "  ${C_ERR}[x] $name: fetch failed${C_RESET}"; return; fi
         elif ! cached_binary_usable "$BINARY_PATH" "$TAG"; then
             echo "  ${C_DIM}[re-fetch] $name: cached binary stale or corrupt${C_RESET}"
-            rm -f "$BINARY_PATH" "$BINARY_PATH.tag"
+            rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.cleaned"
             ARCHIVE_BINARY="$abin"
             if ! fetch_binary; then echo "  ${C_ERR}[x] $name: fetch failed${C_RESET}"; return; fi
         fi
@@ -1563,7 +1595,7 @@ if [ ! -f "$BINARY_PATH" ]; then
     fetch_binary || exit 1
 elif ! cached_binary_usable "$BINARY_PATH" "$TAG"; then
     echo "${C_ERR}[x] Cached binary is stale or corrupt; re-downloading${C_RESET}" >&2
-    rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset"
+    rm -f "$BINARY_PATH" "$BINARY_PATH.tag" "$BINARY_PATH.asset" "$BINARY_PATH.cleaned"
     fetch_binary || exit 1
 else
     echo "${C_OK}[*] Using cached binary: $BINARY_PATH ($TAG)${C_RESET}" >&2
@@ -1574,6 +1606,13 @@ if [ ! -f "$BINARY_PATH" ]; then
     find "$MINER_DIR" -type f >&2
     exit 1
 fi
+
+# ELF-patch for Termux/Android before launch. fetch_binary patches a fresh
+# download, but a cached binary fetched before termux-elf-cleaner existed (or
+# before the patch step was added) still needs it — otherwise bionic aborts in
+# the loader (e.g. dirtybird-c-miner's aarch64_android build: TLS underaligned,
+# needs 64). Idempotent via the .cleaned marker.
+termux_patch_binary "$BINARY_PATH"
 
 # ── Build args ──
 DAEMON_ADDR="${DAEMON_URL#http://}"
