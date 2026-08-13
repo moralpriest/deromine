@@ -8,7 +8,7 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 MINERS_FILE="$PROJECT_DIR/miners.json"
 DEFAULT_DAEMON_PORT=10100
 DEFAULT_WALLET="deroi1qyqztaxp2cqdhtve0k0v4dv0cmkpvhs8xukkwhgr5eep9u8urxzqqqdpvf892qgwq7h23"
-DEROMINE_VERSION="1.1.5"
+DEROMINE_VERSION="1.1.6"
 
 # ── Parse arguments ──
 DAEMON_URL="http://node.derofoundation.org:10100"
@@ -499,8 +499,40 @@ miner_listable_on_host() {
     if [ "$gate" = "true" ]; then
         miner_proven_on_host "$bindir" "$id"
     else
-        ! miner_fails_on_host "$bindir" "$id"
+        if miner_fails_on_host "$bindir" "$id"; then
+            # A .fails verdict is stale when the recorded .asset no longer
+            # glob-matches the asset the catalog would select for this host
+            # today — e.g. the C miner cached a 'linux' aarch64 build that
+            # failed on Termux, then the catalog gained a proper 'termux'
+            # asset for the same tag. The old failure proved nothing about
+            # the new binary, so clear the verdict and list the miner (it
+            # re-fetches on launch and records a fresh verdict).
+            miner_fails_stale_on_host "$bindir" "$m" && return 0
+            return 1
+        fi
+        return 0
     fi
+}
+
+# True when a recorded .fails verdict was captured against a release asset
+# different from the one the catalog selects for this host now (the binary's
+# .asset sidecar is written by fetch_binary). Without a matching .asset we
+# cannot prove staleness and treat the verdict as current.
+miner_fails_stale_on_host() {
+    local bindir="$1" m="$2" id bname asset pattern recorded
+    [ -n "$bindir" ] || return 1
+    id=$(echo "$m" | jq -r '.id')
+    bname=$(get_binary_name "$m")
+    [ -n "$bname" ] || return 1
+    asset="$bindir/$id/$bname.asset"
+    [ -f "$asset" ] || return 1
+    pattern=$(get_asset_pattern "$m")
+    [ -n "$pattern" ] || return 1
+    recorded=$(cat "$asset" 2>/dev/null)
+    [ -n "$recorded" ] || return 1
+    [[ "$recorded" == $pattern ]] && return 1
+    rm -f "$bindir/$id/.fails" "$bindir/$id/.ok"
+    return 0
 }
 
 # Download, extract, lift (rename to the canonical cache name), verify, and
