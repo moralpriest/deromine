@@ -15,6 +15,10 @@
     {
       "name": "localhost",
       "url": "http://localhost:10100"
+    },
+    {
+      "name": "dero.geeko.cloud",
+      "url": "http://dero.geeko.cloud:10100"
     }
   ],
   "miners": [
