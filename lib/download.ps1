@@ -199,7 +199,7 @@ function Move-LiftedFiles {
 # A miner that can't run on this host (missing DLLs, broken GPU driver, broken
 # arm64 build) used to be listed forever and fail on every attempt. deromine
 # now remembers per-miner launch outcomes in `bin/<id>/`:
-#   .fails — fast nonzero exits (within 10s), ONE confirmed failure hides it.
+#   .fails — fast nonzero exits (within 10s); 2+ confirmed failures hide it.
 #   .ok    — a launch that PROVED the miner can run here (exit 0, or it ran
 #            long enough to get past startup, or the user stopped it with
 #            Ctrl+C). Miners marked `startup_gate` in the catalog (e.g. go-gpu
@@ -212,7 +212,7 @@ function Move-LiftedFiles {
 # Thresholds: an exit within 10s is a startup failure (a working miner runs
 # for hours); ONE confirmed failure hides the miner.
 $script:FastFailSecs  = 10
-$script:FailsToHide    = 1
+$script:FailsToHide    = 2
 
 function Get-MinerFailsPath {
     param([string]$BinDir, [string]$MinerId)

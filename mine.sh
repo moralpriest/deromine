@@ -501,7 +501,7 @@ lift_binary() {
 # A miner that can't run on this host (missing DLLs, broken GPU driver, broken
 # arm64 build) used to be listed forever and fail on every attempt. deromine
 # remembers per-miner launch outcomes in bin/<id>/:
-#   .fails — fast nonzero exits (within 10s); ONE confirmed failure hides it.
+#   .fails — fast nonzero exits (within 10s); 2+ confirmed failures hide it.
 #   .ok    — a launch that PROVED the miner can run here (exit 0, ran long
 #            enough to get past startup, or user Ctrl+C). Miners marked
 #            startup_gate in the catalog (go-gpu's self-test refuses broken
@@ -533,7 +533,7 @@ miner_fails_on_host() {
     f="$bindir/$mid/.fails"
     [ -f "$f" ] || return 1
     count=$(cat "$f" 2>/dev/null || echo 0)
-    [ "$count" -ge 1 ]
+    [ "$count" -ge 2 ]
 }
 
 miner_proven_on_host() {

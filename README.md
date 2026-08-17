@@ -423,18 +423,17 @@ keeping manual notes. Results are compared by miner id.
    convention (`-d`, `-w`, `-t`). Any `http(s)://` scheme is stripped from the
    daemon address.
 8. **Mining** launches the binary in the foreground with the built arguments.
-   `--auto-restart` wraps it in a restart loop (max restarts, delay). Launch
-   outcomes are remembered per miner in `bin/<id>/`: `.fails` records fast
-   startup failures (nonzero exit within ~10s — missing DLLs, incompatible
-   build), and `.ok` records a launch that **proved** the miner runs on this
-   host (exit 0, a run that got past startup, or Ctrl+C). Under
-   `--auto-restart` the elapsed time is measured **per run**, never across the
-   whole session — restart delays don't count toward "got past startup", so a
-   miner that fails its startup gate in seconds stays hidden even after a loop
-   full of restarts. A confirmed failure
-   hides a normal miner until it succeeds again; self-test-gated GPU miners
-   (go-gpu) are listed only once `.ok` exists. `--miner=<id>` still force-runs
-   a hidden miner.
+    `--auto-restart` wraps it in a restart loop (max restarts, delay). Launch
+    outcomes are remembered per miner in `bin/<id>/`: `.fails` records fast
+    startup failures (nonzero exit within ~10s — missing DLLs, incompatible
+    build), and `.ok` records a launch that **proved** the miner runs on this
+    host (exit 0, a run that got past startup, or Ctrl+C). Under
+    `--auto-restart` the elapsed time is measured **per run**, never across the
+    whole session — restart delays don't count toward "got past startup", so a
+    miner that fails its startup gate in seconds stays hidden even after a loop
+    full of restarts. **Two or more confirmed failures hide a miner from the
+    menu**; `--miner=<id>` still force-runs a hidden miner; it reappears after
+    a successful launch.
 9. **Benchmark mode** runs each approved miner for a fixed window, parses the
    reported hashrate, and prints a comparison table. Closed/partially closed
    miners are not downloaded or launched unless `--include-closed-source` is
@@ -494,12 +493,14 @@ benchmark/help surfaces.
   all; `deromine --miner=go-gpu` still force-runs it if you want to try after
   updating your driver.
 - **A miner disappears from the list after failing to start**: non-gated
-  miners are hidden after they exit nonzero within ~10s of launch once on this
+  miners are hidden after **2+** confirmed nonzero exits within ~10s on this
   host (the classic "listed but broken on this hardware" case — missing DLLs,
-  an incompatible build). Self-test-gated GPU miners (go-gpu) are listed only
-  once they have proven a successful launch here. Force-run a hidden miner
-  anyway with `deromine --miner=<id>`; it reappears automatically once a
-  launch actually succeeds. To reset manually, delete `bin/<id>/.fails` (or
+  an incompatible build). Two failures guard against transient errors (e.g. a
+  temporarily unreachable daemon) while still hiding genuinely broken miners.
+  Self-test-gated GPU miners (go-gpu) are listed only once they have proven
+  a successful launch here. Force-run a hidden miner anyway with
+  `deromine --miner=<id>`; it reappears automatically once a launch
+  actually succeeds. To reset manually, delete `bin/<id>/.fails` (or
   `bin/<id>/.ok` for gated miners).
 - **Astronv fails to start**: it needs NVIDIA drivers (`libnvidia-ml.so.1`) and is
   Linux amd64 only.
